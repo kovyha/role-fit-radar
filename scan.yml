@@ -1,0 +1,30 @@
+name: Role Fit Radar
+
+on:
+  schedule:
+    - cron: '0 17 * * *'   # Daily at 5pm UTC (6pm BST / 6pm GMT)
+  workflow_dispatch:         # Manual trigger — useful for testing
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scanner
+        run: python main.py
+        env:
+          ANTHROPIC_API_KEY:            ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_JSON:  ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GMAIL_APP_PASSWORD:           ${{ secrets.GMAIL_APP_PASSWORD }}
+          SHEET_ID:                     ${{ secrets.SHEET_ID }}
