@@ -11,6 +11,8 @@
 from config import COMPANIES, LOCATION_FILTER
 from sources.greenhouse import fetch_jobs as greenhouse_fetch
 from sources.scraper import fetch_jobs as scraper_fetch
+from sources.gmail_linkedin import fetch_jobs as linkedin_fetch
+from sources.efinancialcareers import fetch_jobs as efinancial_fetch
 from sheets import get_seen_urls, get_profile, append_jobs
 from assessor import assess_fit
 from gmail import send_summary
@@ -37,6 +39,10 @@ def main():
             jobs = greenhouse_fetch(company["board"], LOCATION_FILTER)
         elif company["source"] == "scraper":
             jobs = scraper_fetch(company["url"], LOCATION_FILTER)
+        elif company["source"] == "linkedin_email":
+            jobs = linkedin_fetch()
+        elif company["source"] == "efinancialcareers":
+            jobs = efinancial_fetch(LOCATION_FILTER)
         else:
             print(f"[main] Unknown source '{company['source']}' for {company['name']} — skipping")
             continue
@@ -50,6 +56,7 @@ def main():
             assessment = assess_fit(job, profile)
             job.update(assessment)
             job["company"] = company["name"]
+            job["source"] = company["source"]
             all_new_jobs.append(job)
 
     # Step 6 & 7: Write and notify

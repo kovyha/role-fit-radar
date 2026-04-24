@@ -43,8 +43,8 @@ def get_seen_urls() -> set[str]:
         if not first_row or first_row[0] != JOBS_COLUMNS[0]:
             worksheet.insert_row(JOBS_COLUMNS, index=1)
         worksheet.set_basic_filter()
-        # URL is column F (index 5, 0-based)
-        urls = worksheet.col_values(6)  # gspread uses 1-based column index
+        # URL is now column G (1-based, after Source column was added)
+        urls = worksheet.col_values(7)  # gspread uses 1-based column index
         return set(urls[1:])            # skip header row
     except gspread.exceptions.WorksheetNotFound:
         # First run — create the Jobs tab with headers
@@ -100,6 +100,7 @@ def append_jobs(jobs: list[dict]) -> None:
         row = [
             today,
             job.get("company", ""),
+            job.get("source", ""),
             job.get("title", ""),
             job.get("location", ""),
             job.get("department", ""),

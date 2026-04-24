@@ -31,16 +31,16 @@ In the `Profile` tab, write your background as key-value rows:
 
 | Field | Value |
 |-------|-------|
-| Name | Ivy Yip |
-| Current Level | Executive Director |
-| Years Experience | 18 years electronic trading technology |
-| Core Stack | kdb+/q, Java, Python, C++ |
-| Domain | Sell-side, benchmark execution, algo trading, internalisation |
-| ML Experience | Random Forest inference engine (production) |
-| LLM/Agent Work | MCP server, alert triage agent, PR safety gates, prompt library |
-| Education | MEng Information Systems Engineering, Imperial College London |
-| Target Roles | Engineering Manager, Data Infrastructure, AI/LLM-adjacent technical leadership |
-| Deal Breakers | No consulting, no sales, no pure front-end, no ML research |
+| Name | blah |
+| Current Level | blah |
+| Years Experience | blah |
+| Core Stack | blah |
+| Domain | blah |
+| ML Experience | blah |
+| LLM/Agent Work | blahy |
+| Education | blah |
+| Target Roles | blah |
+| Deal Breakers | blah |
 
 Extend or edit freely — the LLM reads this tab directly.
 
