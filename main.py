@@ -55,10 +55,11 @@ def main():
     # Step 6 & 7: Write and notify
     if all_new_jobs:
         append_jobs(all_new_jobs)
-        send_summary(all_new_jobs)
+    send_summary(all_new_jobs)
+    if all_new_jobs:
         print(f"[main] Done — {len(all_new_jobs)} new role(s) processed and emailed")
     else:
-        print("[main] Done — no new roles found")
+        print("[main] Done — no new roles found, status email sent")
 
 
 if __name__ == "__main__":

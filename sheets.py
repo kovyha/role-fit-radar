@@ -24,12 +24,9 @@ def _get_sheet():
     """Authenticate and return the main spreadsheet."""
     creds_json = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
     creds_dict = json.loads(creds_json)
-    print(f"[DEBUG] Service account email: {creds_dict.get('client_email', 'NOT FOUND')}")
-    print(f"[DEBUG] Credentials parsed successfully")
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
     client = gspread.authorize(creds)
     sheet_id = os.environ["SHEET_ID"]
-    print(f"[DEBUG] Attempting to open sheet ID: {sheet_id}")
     return client.open_by_key(sheet_id)
 
 
@@ -42,6 +39,10 @@ def get_seen_urls() -> set[str]:
 
     try:
         worksheet = spreadsheet.worksheet(JOBS_TAB)
+        first_row = worksheet.row_values(1)
+        if not first_row or first_row[0] != JOBS_COLUMNS[0]:
+            worksheet.insert_row(JOBS_COLUMNS, index=1)
+        worksheet.set_basic_filter()
         # URL is column F (index 5, 0-based)
         urls = worksheet.col_values(6)  # gspread uses 1-based column index
         return set(urls[1:])            # skip header row
@@ -49,6 +50,7 @@ def get_seen_urls() -> set[str]:
         # First run — create the Jobs tab with headers
         worksheet = spreadsheet.add_worksheet(title=JOBS_TAB, rows=1000, cols=len(JOBS_COLUMNS))
         worksheet.append_row(JOBS_COLUMNS)
+        worksheet.set_basic_filter()
         return set()
 
 
@@ -91,7 +93,7 @@ def append_jobs(jobs: list[dict]) -> None:
     """
     spreadsheet = _get_sheet()
     worksheet = spreadsheet.worksheet(JOBS_TAB)
-    today = datetime.today().strftime("%Y-%m-%d")
+    today = datetime.today().strftime("%Y-%m-%d %H:%M")
 
     rows = []
     for job in jobs:
