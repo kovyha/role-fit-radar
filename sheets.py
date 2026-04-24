@@ -24,9 +24,12 @@ def _get_sheet():
     """Authenticate and return the main spreadsheet."""
     creds_json = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
     creds_dict = json.loads(creds_json)
+    print(f"[DEBUG] Service account email: {creds_dict.get('client_email', 'NOT FOUND')}")
+    print(f"[DEBUG] Credentials parsed successfully")
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
     client = gspread.authorize(creds)
     sheet_id = os.environ["SHEET_ID"]
+    print(f"[DEBUG] Attempting to open sheet ID: {sheet_id}")
     return client.open_by_key(sheet_id)
 
 
