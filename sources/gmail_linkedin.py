@@ -6,16 +6,17 @@
 import os
 import imaplib
 import email
-from email.header import decode_header
-from html.parser import HTMLParser
-from urllib.parse import urlparse, parse_qs
+import email.message
 import re
 
-import requests
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
-from config import LINKEDIN_LABEL, GMAIL_IMAP_HOST
+from config import (
+    LINKEDIN_LABEL, LINKEDIN_EMAIL_FROM, GMAIL_IMAP_HOST,
+    JOB_CONTENT_MAX_CHARS,
+    PLAYWRIGHT_PAGE_TIMEOUT_MS, PLAYWRIGHT_SELECTOR_TIMEOUT_MS, PLAYWRIGHT_FALLBACK_WAIT_MS,
+)
 
 
 def fetch_jobs() -> list[dict]:
@@ -28,9 +29,15 @@ def fetch_jobs() -> list[dict]:
     try:
         # Step 1: Connect to Gmail IMAP
         mail = imaplib.IMAP4_SSL(GMAIL_IMAP_HOST, 993)
-        gmail_user = os.environ.get("GMAIL_USER") or os.environ.get("EMAIL_SENDER")
-        # Use get() so missing env var doesn't raise during tests where IMAP is mocked
-        gmail_password = os.environ.get("GMAIL_APP_PASSWORD")
+        gmail_user = (os.environ.get("GMAIL_USER") or os.environ.get("EMAIL_SENDER") or "").strip()
+        # Google App Passwords are 16-char codes; Google displays them with spaces
+        # ("xxxx xxxx xxxx xxxx") but IMAP needs them without — strip all spaces.
+        gmail_password = (os.environ.get("GMAIL_APP_PASSWORD") or "").replace(" ", "").strip()
+
+        if not gmail_user or not gmail_password:
+            print("[gmail_linkedin] Missing GMAIL_USER or GMAIL_APP_PASSWORD — skipping")
+            return []
+
         mail.login(gmail_user, gmail_password)
 
         # Step 2: List available mailboxes to find the right label
@@ -70,13 +77,15 @@ def fetch_jobs() -> list[dict]:
             return []
 
         # Step 4: Search for messages from LinkedIn
-        status, message_nums = mail.search(None, 'FROM', 'jobalerts-noreply@linkedin.com')
+        status, message_nums = mail.search(None, 'UNSEEN', 'FROM', LINKEDIN_EMAIL_FROM)
 
         if status != 'OK' or not message_nums[0]:
             print("[gmail_linkedin] No LinkedIn job alert emails found")
             mail.close()
             mail.logout()
             return []
+
+        print(f"[gmail_linkedin] Found {len(message_nums[0].split())} email(s) to parse")
 
         # Step 5: Parse each email and extract job listings
         for num in message_nums[0].split():
@@ -96,17 +105,23 @@ def fetch_jobs() -> list[dict]:
         mail.close()
         mail.logout()
 
-        # Step 6: Fetch full job descriptions for each job (synchronously)
-        for job in jobs:
-            job["content"] = _fetch_job_description(job["url"])
-
-        # Deduplicate by URL
+        # Deduplicate by URL before fetching descriptions
         seen_urls = set()
         unique_jobs = []
         for job in jobs:
             if job["url"] not in seen_urls:
                 seen_urls.add(job["url"])
                 unique_jobs.append(job)
+
+        # Step 6: Fetch full job descriptions only for unique jobs
+        for i, job in enumerate(unique_jobs, 1):
+            print(f"[gmail_linkedin] Fetching description {i}/{len(unique_jobs)}: {job['title']}")
+            page_data = _fetch_job_description(job["url"])
+            job["content"] = page_data["content"]
+            if page_data["company"]:
+                job["company"] = page_data["company"]
+            if page_data["location"]:
+                job["location"] = page_data["location"]
 
         print(f"[gmail_linkedin] Fetched {len(unique_jobs)} unique job(s) from LinkedIn alerts")
         return unique_jobs
@@ -145,17 +160,21 @@ def _parse_email_for_jobs(msg: email.message.Message) -> list[dict]:
     for link in soup.find_all('a', href=True):
         href = link['href']
 
-        # Check if it's a LinkedIn job link
-        if 'linkedin.com/jobs/view/' in href:
-            # Extract job URL (ensure it's clean)
-            job_url = href.split('?')[0]  # Remove query params
-            if not job_url.startswith('http'):
-                job_url = 'https://' + job_url
+        # Match direct and redirect variants:
+        #   linkedin.com/jobs/view/JOBID
+        #   linkedin.com/comm/jobs/view/JOBID  (tracking redirect)
+        if 'linkedin.com' in href and 'jobs/view/' in href:
+            # Normalise to canonical URL — /comm/jobs/view/ redirects require
+            # auth and time out; extract the job ID and rebuild the public URL.
+            job_id_match = re.search(r'/jobs/view/(\d+)', href)
+            if not job_id_match:
+                continue
+            job_url = f"https://www.linkedin.com/jobs/view/{job_id_match.group(1)}/"
 
             # Extract title and metadata from surrounding elements
             title = link.get_text(strip=True)
             if not title:
-                title = "Unknown Role"
+                continue  # skip logo/image links that share the job URL but carry no text
 
             # Try to find company and location from the card container
             # Don't pass unexpected kwargs to BeautifulSoup APIs — just find the nearest container tag
@@ -194,65 +213,89 @@ def _parse_email_for_jobs(msg: email.message.Message) -> list[dict]:
     return jobs
 
 
-def _fetch_job_description(job_url: str) -> str:
+def _fetch_job_description(job_url: str) -> dict:
     """
-    Fetch full job description from LinkedIn using Playwright.
-    Returns the job description text, or empty string on failure.
+    Fetch full job description, company, and location from LinkedIn using Playwright.
+    Returns dict with content, company, location keys.
     """
     try:
         import asyncio
         return asyncio.run(_fetch_description_async(job_url))
     except Exception as e:
         print(f"[gmail_linkedin] Could not fetch description for {job_url}: {e}")
-        return ""
+        return {"content": "", "company": "", "location": ""}
 
 
-async def _fetch_description_async(job_url: str) -> str:
+async def _fetch_description_async(job_url: str) -> dict:
     """
-    Async helper to fetch job description using Playwright.
+    Async helper to fetch job description, company, and location using Playwright.
+    Extracts from JSON-LD structured data first, then falls back to CSS selectors.
     """
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-
-            # Set a realistic user agent
-            await page.set_user_agent(
+            context = await browser.new_context()
+            page = await context.new_page()
+            await page.set_extra_http_headers({"User-Agent": (
                 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
                 'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            )
+            )})
 
-            await page.goto(job_url, wait_until='networkidle', timeout=30000)
+            await page.goto(job_url, wait_until='domcontentloaded', timeout=PLAYWRIGHT_PAGE_TIMEOUT_MS)
 
-            # Wait for the job description to load
-            # LinkedIn uses .show-more-less-html__markup or similar selector
             try:
-                await page.wait_for_selector('[data-test-id="jserp-job-details"]', timeout=10000)
-            except:
-                # Fallback: just wait for some content
-                await page.wait_for_timeout(2000)
+                await page.wait_for_selector('.show-more-less-html__markup, [data-test-id="jserp-job-details"]', timeout=PLAYWRIGHT_SELECTOR_TIMEOUT_MS)
+            except Exception:
+                await page.wait_for_timeout(PLAYWRIGHT_FALLBACK_WAIT_MS)
 
-            # Extract description text
-            description = await page.evaluate('''
+            data = await page.evaluate('''
                 () => {
-                    // Try primary selector
-                    let elem = document.querySelector('[data-test-id="jserp-job-details"]');
-                    if (!elem) {
-                        // Fallback: get all text content
-                        elem = document.querySelector('.show-more-less-html__markup') ||
-                               document.querySelector('[class*="description"]') ||
-                               document.body;
+                    // JSON-LD structured data is the most reliable source
+                    let company = '', location = '';
+                    for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+                        try {
+                            const d = JSON.parse(script.textContent);
+                            if (d['@type'] === 'JobPosting') {
+                                company = (d.hiringOrganization && d.hiringOrganization.name) || '';
+                                const loc = d.jobLocation;
+                                if (loc) {
+                                    const addr = loc.address || loc;
+                                    location = addr.addressLocality || addr.addressRegion || '';
+                                }
+                                break;
+                            }
+                        } catch(e) {}
                     }
-                    return elem ? elem.innerText : '';
+                    // CSS selector fallbacks
+                    if (!company) {
+                        const el = document.querySelector('a.topcard__org-name-link') ||
+                                   document.querySelector('.company-name');
+                        company = el ? el.textContent.trim() : '';
+                    }
+                    if (!location) {
+                        const el = document.querySelector('.topcard__flavor--bullet');
+                        location = el ? el.textContent.trim() : '';
+                    }
+                    // Description
+                    const descEl = document.querySelector('.show-more-less-html__markup') ||
+                                   document.querySelector('[data-test-id="jserp-job-details"]') ||
+                                   document.querySelector('[class*="description"]');
+                    const description = descEl ? descEl.innerText : '';
+                    return { description, company, location };
                 }
             ''')
 
+            await page.close()
+            await context.close()
             await browser.close()
 
-            # Clean up whitespace
-            description = ' '.join(description.split())[:6000]  # Cap at 6000 chars like greenhouse
-            return description
+            content = ' '.join((data.get('description') or '').split())[:JOB_CONTENT_MAX_CHARS]
+            return {
+                "content": content,
+                "company": (data.get('company') or '').strip(),
+                "location": (data.get('location') or '').strip(),
+            }
 
     except Exception as e:
         print(f"[gmail_linkedin] Playwright error for {job_url}: {e}")
-        return ""
+        return {"content": "", "company": "", "location": ""}

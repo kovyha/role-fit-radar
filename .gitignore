@@ -3,6 +3,9 @@
 .env
 service-account*.json
 
+# Local debug scripts
+debug_gmail_efc.py
+
 # Python
 __pycache__/
 *.py[cod]

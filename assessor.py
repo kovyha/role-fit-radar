@@ -5,6 +5,7 @@
 import os
 import json
 import anthropic
+from config import CLAUDE_MODEL, ASSESSOR_MAX_TOKENS
 
 
 def assess_fit(job: dict, profile: str) -> dict:
@@ -45,8 +46,8 @@ Use exactly this structure:
 
     try:
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=1000,
+            model=CLAUDE_MODEL,
+            max_tokens=ASSESSOR_MAX_TOKENS,
             messages=[{"role": "user", "content": prompt}]
         )
 

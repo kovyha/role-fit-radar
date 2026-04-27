@@ -10,7 +10,7 @@ from email.mime.text import MIMEText
 from collections import Counter
 from datetime import date
 
-from config import EMAIL_SENDER, EMAIL_RECIPIENT, EMAIL_SUBJECT
+from config import EMAIL_SENDER, EMAIL_RECIPIENT
 
 
 def send_summary(jobs: list[dict]) -> None:
@@ -26,13 +26,26 @@ def send_summary(jobs: list[dict]) -> None:
 
     if jobs:
         counts = Counter(j.get("recommendation", "") for j in jobs)
-        subject = (
-            f"{EMAIL_SUBJECT} "
-            f"({counts.get('Apply',0)} Apply, {counts.get('Maybe',0)} Maybe, {counts.get('Skip',0)} Skip) "
-            f"— {date.today().strftime('%Y-%m-%d')}"
-        )
+        n_apply = counts.get("Apply", 0)
+        n_maybe = counts.get("Maybe", 0)
+        n_skip  = counts.get("Skip", 0)
+        today   = date.today().strftime("%Y-%m-%d")
+
+        # Lead with actionable counts when there's something worth acting on
+        if n_apply or n_maybe:
+            parts = []
+            if n_apply:
+                parts.append(f"{n_apply} Apply")
+            if n_maybe:
+                parts.append(f"{n_maybe} Maybe")
+            prefix = " + ".join(parts)
+            subject = f"[{prefix}] Role Fit Radar — {today}"
+            if n_skip:
+                subject += f" ({n_skip} Skip)"
+        else:
+            subject = f"Role Fit Radar — {n_skip} Skip — {today}"
     else:
-        subject = f"{EMAIL_SUBJECT} — No new roles — {date.today().strftime('%Y-%m-%d')}"
+        subject = f"Role Fit Radar — No new roles — {date.today().strftime('%Y-%m-%d')}"
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -56,7 +69,7 @@ def send_summary(jobs: list[dict]) -> None:
 def _build_html(jobs: list[dict]) -> str:
     """Build an HTML email body with 3 separate tables (Apply, Maybe, Skip)."""
     if not jobs:
-        return f"""
+        return """
     <html><body style="font-family:Arial,sans-serif;color:#1a1a1a;max-width:900px;margin:0 auto;">
         <h2 style="border-bottom:2px solid #333;padding-bottom:8px;">
             Role Fit Radar — No New Roles Found
@@ -79,14 +92,14 @@ def _build_html(jobs: list[dict]) -> str:
         if not job_list:
             return ""
 
-        colour = {"Apply": "#2e7d32", "Maybe": "#e65100", "Skip": "#b71c1c"}.get(recommendation, "#333")
+        colour = {"Apply": "#2e7d32", "Maybe": "#0277bd", "Skip": "#757575"}.get(recommendation, "#333")
         rows = ""
         for job in job_list:
             rows += f"""
         <tr>
             <td style="padding:8px;border-bottom:1px solid #eee;">
                 <a href="{job.get('url', '')}" style="font-weight:bold;color:#1a1a1a;">{job.get('title', '')}</a><br>
-                <small style="color:#666;">{job.get('company', '')} · {job.get('department', '')} · {job.get('location', '')}</small>
+                <small style="color:#666;">{job.get('company', '')} · {job.get('department', '')} · {job.get('location', '')} · {job.get('source', '')}</small>
             </td>
             <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">
                 <strong>{job.get('fit_score', '')}/10</strong>
@@ -146,6 +159,7 @@ def _build_plain(jobs: list[dict]) -> str:
             f"Company:        {job.get('company', '')}",
             f"Department:     {job.get('department', '')}",
             f"Location:       {job.get('location', '')}",
+            f"Source:         {job.get('source', '')}",
             f"URL:            {job.get('url', '')}",
             f"Fit Score:      {job.get('fit_score', '')}/10",
             f"Recommendation: {job.get('recommendation', '')}",

@@ -4,6 +4,7 @@
 
 import requests
 from bs4 import BeautifulSoup
+from config import JOB_CONTENT_MAX_CHARS, REQUEST_TIMEOUT_SECS
 
 
 GREENHOUSE_API = "https://boards-api.greenhouse.io/v1/boards/{board}/jobs?content=true"
@@ -23,7 +24,7 @@ def fetch_jobs(board: str, location_filter: str) -> list[dict]:
     url = GREENHOUSE_API.format(board=board)
 
     try:
-        response = requests.get(url, timeout=15)
+        response = requests.get(url, timeout=REQUEST_TIMEOUT_SECS)
         response.raise_for_status()
     except requests.RequestException as e:
         print(f"[greenhouse] Failed to fetch {url}: {e}")
@@ -53,7 +54,7 @@ def fetch_jobs(board: str, location_filter: str) -> list[dict]:
             "url":        job.get("absolute_url", ""),
             "location":   location,
             "department": department,
-            "content":    clean_content[:6000]  # cap at 6k chars to stay within token budget
+            "content":    clean_content[:JOB_CONTENT_MAX_CHARS]
         })
 
     return results

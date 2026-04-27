@@ -55,7 +55,8 @@ def main():
             print(f"[main] Assessing: {job['title']}")
             assessment = assess_fit(job, profile)
             job.update(assessment)
-            job["company"] = company["name"]
+            if company["source"] == "greenhouse":
+                job["company"] = company["name"]
             job["source"] = company["source"]
             all_new_jobs.append(job)
 
