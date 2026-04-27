@@ -19,9 +19,10 @@ from config import (
 )
 
 
-def fetch_jobs() -> list[dict]:
+def fetch_jobs(seen_urls: set = None) -> list[dict]:
     """
     Fetch LinkedIn job alerts from Gmail, parse job listings, and fetch full descriptions.
+    Pass seen_urls (from Google Sheet) to skip description fetches for known jobs.
     Returns list of dicts: {title, url, location, department, content, company}
     """
     jobs = []
@@ -105,17 +106,19 @@ def fetch_jobs() -> list[dict]:
         mail.close()
         mail.logout()
 
-        # Deduplicate by URL before fetching descriptions
-        seen_urls = set()
-        unique_jobs = []
+        # Deduplicate within run, then drop URLs already in the Google Sheet
+        sheet_seen = seen_urls or set()
+        seen_in_run: set[str] = set()
+        delta_jobs = []
         for job in jobs:
-            if job["url"] not in seen_urls:
-                seen_urls.add(job["url"])
-                unique_jobs.append(job)
+            if job["url"] not in seen_in_run and job["url"] not in sheet_seen:
+                seen_in_run.add(job["url"])
+                delta_jobs.append(job)
 
-        # Step 6: Fetch full job descriptions only for unique jobs
-        for i, job in enumerate(unique_jobs, 1):
-            print(f"[gmail_linkedin] Fetching description {i}/{len(unique_jobs)}: {job['title']}")
+        # Step 6: Fetch descriptions only for the delta
+        print(f"[gmail_linkedin] {len(delta_jobs)} new job(s) to fetch descriptions for")
+        for i, job in enumerate(delta_jobs, 1):
+            print(f"[gmail_linkedin] Fetching description {i}/{len(delta_jobs)}: {job['title']}")
             page_data = _fetch_job_description(job["url"])
             job["content"] = page_data["content"]
             if page_data["company"]:
@@ -123,8 +126,8 @@ def fetch_jobs() -> list[dict]:
             if page_data["location"]:
                 job["location"] = page_data["location"]
 
-        print(f"[gmail_linkedin] Fetched {len(unique_jobs)} unique job(s) from LinkedIn alerts")
-        return unique_jobs
+        print(f"[gmail_linkedin] Done — {len(delta_jobs)} new job(s) from LinkedIn alerts")
+        return delta_jobs
 
     except Exception as e:
         print(f"[gmail_linkedin] Error fetching jobs: {e}")

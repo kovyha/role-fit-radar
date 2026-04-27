@@ -40,9 +40,9 @@ def main():
         elif company["source"] == "scraper":
             jobs = scraper_fetch(company["url"], LOCATION_FILTER)
         elif company["source"] == "linkedin_email":
-            jobs = linkedin_fetch()
+            jobs = linkedin_fetch(seen_urls=seen_urls)
         elif company["source"] == "efinancialcareers":
-            jobs = efinancial_fetch(LOCATION_FILTER)
+            jobs = efinancial_fetch(LOCATION_FILTER, seen_urls=seen_urls)
         else:
             print(f"[main] Unknown source '{company['source']}' for {company['name']} — skipping")
             continue

@@ -42,7 +42,7 @@ class TestFetchJobsAsync:
             mock_page.evaluate.return_value = "Job description text"
 
             from sources.efinancialcareers import _fetch_jobs_async
-            jobs = await _fetch_jobs_async("London")
+            jobs = await _fetch_jobs_async("London", set())
 
             assert len(jobs) > 0
             job = jobs[0]
@@ -77,7 +77,7 @@ class TestFetchJobsAsync:
             mock_page.evaluate.return_value = "Description"
 
             from sources.efinancialcareers import _fetch_jobs_async
-            jobs = await _fetch_jobs_async("London")
+            jobs = await _fetch_jobs_async("London", set())
 
             assert len(jobs) == 1
             assert jobs[0]['url'] == same_url
@@ -94,7 +94,7 @@ class TestFetchJobsAsync:
             mock_page.query_selector_all.return_value = []
 
             from sources.efinancialcareers import _fetch_jobs_async
-            jobs = await _fetch_jobs_async("London")
+            jobs = await _fetch_jobs_async("London", set())
 
             assert jobs == []
 
@@ -105,9 +105,32 @@ class TestFetchJobsAsync:
             mock_pw.return_value.__aenter__.side_effect = Exception("Browser launch failed")
 
             from sources.efinancialcareers import _fetch_jobs_async
-            jobs = await _fetch_jobs_async("London")
+            jobs = await _fetch_jobs_async("London", set())
 
             assert jobs == []
+
+    @pytest.mark.asyncio
+    async def test_fetch_jobs_url_uses_path_based_format(self):
+        """eFC requires keyword in the URL path — ?keyword= is silently ignored by the SPA."""
+        with patch('sources.efinancialcareers.async_playwright') as mock_pw:
+            mock_browser, mock_context, mock_page = _make_browser_mock()
+            mock_p = AsyncMock()
+            mock_pw.return_value.__aenter__.return_value = mock_p
+            mock_p.chromium.launch.return_value = mock_browser
+
+            mock_page.query_selector_all.return_value = []
+
+            from sources.efinancialcareers import _fetch_jobs_async
+            await _fetch_jobs_async("London", set())
+
+            first_url = mock_page.goto.call_args_list[0][0][0]
+            # Keyword must appear in the URL path segment, not as a ?keyword= param
+            assert "/jobs/algorithmic-trading/" in first_url
+            assert "?keyword=" not in first_url
+            # q= is the query param the SPA honours
+            assert "q=Algorithmic%20Trading" in first_url
+            # Pagination starts at page 1
+            assert "page=1" in first_url
 
     @pytest.mark.asyncio
     async def test_fetch_jobs_location_in_url(self):
@@ -121,7 +144,7 @@ class TestFetchJobsAsync:
             mock_page.query_selector_all.return_value = []
 
             from sources.efinancialcareers import _fetch_jobs_async
-            await _fetch_jobs_async("London")
+            await _fetch_jobs_async("London", set())
 
             assert mock_page.goto.called
             url = mock_page.goto.call_args_list[0][0][0]
@@ -139,7 +162,7 @@ class TestFetchJobsAsync:
             mock_page.query_selector_all.return_value = []
 
             from sources.efinancialcareers import _fetch_jobs_async
-            await _fetch_jobs_async("Manchester")
+            await _fetch_jobs_async("Manchester", set())
 
             assert mock_page.goto.called
             url = mock_page.goto.call_args_list[0][0][0]
@@ -148,7 +171,7 @@ class TestFetchJobsAsync:
 
     @pytest.mark.asyncio
     async def test_fetch_jobs_url_encodes_keywords(self):
-        """Keywords with spaces are percent-encoded in the navigated URL."""
+        """Keywords with spaces are percent-encoded in both the path and q= param."""
         with patch('sources.efinancialcareers.async_playwright') as mock_pw:
             mock_browser, mock_context, mock_page = _make_browser_mock()
             mock_p = AsyncMock()
@@ -158,11 +181,13 @@ class TestFetchJobsAsync:
             mock_page.query_selector_all.return_value = []
 
             from sources.efinancialcareers import _fetch_jobs_async
-            await _fetch_jobs_async("London")
+            await _fetch_jobs_async("London", set())
 
-            # "Algorithmic Trading" is the first keyword — must be URL-encoded
+            # "Algorithmic Trading" is the first keyword — spaces become hyphens in
+            # the path and %20 in the q= param; neither form should have a raw space
             first_url = mock_page.goto.call_args_list[0][0][0]
-            assert "Algorithmic%20Trading" in first_url
+            assert "algorithmic-trading" in first_url   # path slug
+            assert "Algorithmic%20Trading" in first_url  # q= param
             assert "Algorithmic Trading" not in first_url
 
     @pytest.mark.asyncio
@@ -177,7 +202,7 @@ class TestFetchJobsAsync:
             mock_page.query_selector_all.return_value = []
 
             from sources.efinancialcareers import _fetch_jobs_async
-            await _fetch_jobs_async("London")
+            await _fetch_jobs_async("London", set())
 
             _, ctx_kwargs = mock_browser.new_context.call_args
             assert "user_agent" not in ctx_kwargs

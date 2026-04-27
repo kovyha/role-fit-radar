@@ -1,12 +1,13 @@
 # sources/efinancialcareers.py
 # Scrapes eFinancialCareers for jobs matching specified keywords using Playwright.
-# Searches for keyword-filtered jobs in a location, then fetches full descriptions.
+# Two-phase fetch: (1) collect all job stubs cheaply, (2) fetch descriptions only
+# for the delta (URLs not already in the Google Sheet).
 
 from urllib.parse import quote
 
 from playwright.async_api import async_playwright
 from config import (
-    EFINANCIAL_KEYWORDS, EFINANCIAL_TITLE_TERMS,
+    EFINANCIAL_KEYWORDS, EFINANCIAL_TITLE_TERMS, EFINANCIAL_TITLE_BLOCKLIST, EFINANCIAL_PAGE_SIZE,
     JOB_CONTENT_MAX_CHARS,
     PLAYWRIGHT_PAGE_TIMEOUT_MS, PLAYWRIGHT_SELECTOR_TIMEOUT_MS, PLAYWRIGHT_FALLBACK_WAIT_MS,
 )
@@ -18,96 +19,148 @@ USER_AGENT = (
     'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 )
 
+# London coordinates used in the eFC search URL — the SPA ignores ?keyword= and
+# requires the keyword in the path (/jobs/{slug}/in-london%2C-uk?q=keyword).
+_LONDON_LAT = "51.50721"
+_LONDON_LNG = "-0.12758"
+
+
+def _build_search_url(keyword: str, location_filter: str, page: int = 1) -> str:
+    keyword_slug = keyword.lower().replace(' ', '-')
+    return (
+        f"{EFINANCIAL_BASE}/{keyword_slug}/in-london%2C-uk"
+        f"?q={quote(keyword)}&location={quote(location_filter + ', UK')}"
+        f"&latitude={_LONDON_LAT}&longitude={_LONDON_LNG}&countryCode=GB"
+        f"&locationPrecision=City&radius=40&radiusUnit=km&pageSize={EFINANCIAL_PAGE_SIZE}"
+        f"&currencyCode=GBP&language=en&includeUnspecifiedSalary=true"
+        f"&page={page}"
+    )
+
 
 def _is_relevant_title(title: str) -> bool:
     t = title.lower()
-    return any(term in t for term in EFINANCIAL_TITLE_TERMS)
+    return (
+        any(term in t for term in EFINANCIAL_TITLE_TERMS)
+        and not any(term in t for term in EFINANCIAL_TITLE_BLOCKLIST)
+    )
 
 
-def fetch_jobs(location_filter: str) -> list[dict]:
+def fetch_jobs(location_filter: str, seen_urls: set = None) -> list[dict]:
     """
     Fetch jobs from eFinancialCareers for each keyword, filtered by location.
-
-    Args:
-        location_filter: Location string e.g. "London"
+    Pass seen_urls (from Google Sheet) to skip description fetches for known jobs.
 
     Returns:
         List of job dicts: {title, url, location, company, department, content}
     """
     try:
         import asyncio
-        return asyncio.run(_fetch_jobs_async(location_filter))
+        return asyncio.run(_fetch_jobs_async(location_filter, seen_urls or set()))
     except Exception as e:
         print(f"[efinancialcareers] Error fetching jobs: {e}")
         return []
 
 
-async def _fetch_jobs_async(location_filter: str) -> list[dict]:
+async def _fetch_jobs_async(location_filter: str, sheet_seen_urls: set) -> list[dict]:
     """
-    Async helper to fetch jobs using Playwright.
+    Async helper — two phases:
+      Phase 1: collect all job stubs across every keyword (title, url, company, location)
+      Phase 2: fetch descriptions only for URLs not already in the Google Sheet
     """
-    jobs = []
-    seen_urls = set()
+    print(f"[efinancialcareers] Searching {len(EFINANCIAL_KEYWORDS)} keyword(s): {', '.join(EFINANCIAL_KEYWORDS)}")
+
+    stubs = []
+    seen_in_run: set[str] = set()
+    first_url_per_keyword: list[str] = []
 
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
 
+            # ── Phase 1: collect stubs (paginated) ───────────────────────────
             for keyword in EFINANCIAL_KEYWORDS:
-                url = f"{EFINANCIAL_BASE}?keyword={quote(keyword)}&location={quote(location_filter)}&countryCode=GB"
-
-                try:
-                    context = await browser.new_context()
-                    page = await context.new_page()
-                    await page.set_extra_http_headers({"User-Agent": USER_AGENT})
-
-                    await page.goto(url, wait_until='domcontentloaded', timeout=PLAYWRIGHT_PAGE_TIMEOUT_MS)
-
-                    # Wait for job cards to appear (common selectors for Angular SPAs)
+                page_num = 1
+                keyword_first_url = None
+                keyword_total_cards = 0
+                keyword_stubs_before = len(stubs)
+                while True:
+                    url = _build_search_url(keyword, location_filter, page=page_num)
                     try:
-                        await page.wait_for_selector('[data-test="job-card"], .job-card, efc-job-card', timeout=PLAYWRIGHT_SELECTOR_TIMEOUT_MS)
-                    except Exception:
-                        await page.wait_for_timeout(PLAYWRIGHT_FALLBACK_WAIT_MS)
-
-                    # Extract job cards
-                    job_elements = await page.query_selector_all('[data-test="job-card"], .job-card, efc-job-card')
-
-                    for elem in job_elements:
+                        context = await browser.new_context()
+                        page = await context.new_page()
+                        await page.set_extra_http_headers({"User-Agent": USER_AGENT})
+                        await page.goto(url, wait_until='domcontentloaded', timeout=PLAYWRIGHT_PAGE_TIMEOUT_MS)
                         try:
-                            title   = await elem.evaluate("el => el.querySelector('a.job-title')?.title?.trim() || el.querySelector('h3, h2')?.textContent?.trim() || ''")
-                            job_url = await elem.evaluate("el => el.querySelector('a.job-title')?.href || ''")
-                            company = await elem.evaluate('el => el.querySelector(".font-body-3.company")?.textContent?.trim() || "Unknown"')
-                            location = await elem.evaluate('el => el.querySelector(".font-helper-text.location span.dot-divider")?.textContent?.trim() || ""')
+                            await page.wait_for_selector('[data-test="job-card"], .job-card, efc-job-card', timeout=PLAYWRIGHT_SELECTOR_TIMEOUT_MS)
+                        except Exception:
+                            await page.wait_for_timeout(PLAYWRIGHT_FALLBACK_WAIT_MS)
 
-                            if job_url and job_url not in seen_urls and _is_relevant_title(title):
-                                seen_urls.add(job_url)
+                        job_elements = await page.query_selector_all('[data-test="job-card"], .job-card, efc-job-card')
 
-                                # Fetch full description
-                                content = await _fetch_job_description_async(browser, job_url)
+                        if page_num == 1 and job_elements:
+                            keyword_first_url = await job_elements[0].evaluate("el => el.querySelector('a.job-title')?.href || ''")
+                            first_url_per_keyword.append(keyword_first_url)
 
-                                jobs.append({
-                                    "title": title or "Unknown Role",
-                                    "url": job_url,
-                                    "company": company,
-                                    "location": location,
-                                    "department": "",
-                                    "content": content
-                                })
-                        except Exception as e:
-                            print(f"[efinancialcareers] Error extracting job card: {e}")
-                            continue
+                        for elem in job_elements:
+                            try:
+                                title    = await elem.evaluate("el => el.querySelector('a.job-title')?.title?.trim() || el.querySelector('h3, h2')?.textContent?.trim() || ''")
+                                job_url  = await elem.evaluate("el => el.querySelector('a.job-title')?.href || ''")
+                                company  = await elem.evaluate('el => el.querySelector(".font-body-3.company")?.textContent?.trim() || "Unknown"')
+                                location = await elem.evaluate('el => el.querySelector(".font-helper-text.location span.dot-divider")?.textContent?.trim() || ""')
 
-                    await page.close()
-                    await context.close()
+                                if (job_url
+                                        and job_url not in seen_in_run
+                                        and job_url not in sheet_seen_urls
+                                        and _is_relevant_title(title)):
+                                    seen_in_run.add(job_url)
+                                    stubs.append({
+                                        "title":      title or "Unknown Role",
+                                        "url":        job_url,
+                                        "company":    company,
+                                        "location":   location,
+                                        "department": "",
+                                        "content":    "",
+                                    })
+                            except Exception as e:
+                                print(f"[efinancialcareers] Error extracting job card: {e}")
+                                continue
 
-                except Exception as e:
-                    print(f"[efinancialcareers] Error processing keyword '{keyword}': {e}")
-                    try:
+                        keyword_total_cards += len(job_elements)
                         await page.close()
                         await context.close()
-                    except Exception:
-                        pass
-                    continue
+
+                        # Stop paginating when eFC returns a partial page (last page reached)
+                        if len(job_elements) < EFINANCIAL_PAGE_SIZE:
+                            break
+                        page_num += 1
+
+                    except Exception as e:
+                        print(f"[efinancialcareers] Error processing keyword '{keyword}' page {page_num}: {e}")
+                        try:
+                            await page.close()
+                            await context.close()
+                        except Exception:
+                            pass
+                        break
+
+                keyword_kept = len(stubs) - keyword_stubs_before
+                print(f"[efinancialcareers] '{keyword}': {keyword_total_cards} cards fetched ({page_num} page(s)), {keyword_kept} kept after filter")
+
+            # Fallback detection — warn if eFC is returning a generic default list
+            if len(first_url_per_keyword) >= 3:
+                most_common = max(set(first_url_per_keyword), key=first_url_per_keyword.count)
+                repeat_rate = first_url_per_keyword.count(most_common) / len(first_url_per_keyword)
+                if repeat_rate > 0.5:
+                    print(
+                        f"[efinancialcareers] WARNING: {int(repeat_rate * 100)}% of keywords returned "
+                        f"the same first result — eFC search URL format may be broken."
+                    )
+
+            # ── Phase 2: fetch descriptions for the delta only ────────────────
+            print(f"[efinancialcareers] {len(stubs)} new job(s) to fetch descriptions for")
+            for i, stub in enumerate(stubs, 1):
+                print(f"[efinancialcareers] Fetching description {i}/{len(stubs)}: {stub['title']}")
+                stub["content"] = await _fetch_job_description_async(browser, stub["url"])
 
             await browser.close()
 
@@ -115,7 +168,7 @@ async def _fetch_jobs_async(location_filter: str) -> list[dict]:
         print(f"[efinancialcareers] Playwright error: {e}")
         return []
 
-    return jobs
+    return stubs
 
 
 async def _fetch_job_description_async(browser, job_url: str) -> str:
@@ -129,13 +182,12 @@ async def _fetch_job_description_async(browser, job_url: str) -> str:
 
         await page.goto(job_url, wait_until='domcontentloaded', timeout=PLAYWRIGHT_PAGE_TIMEOUT_MS)
 
-        # Wait for job description to load
         try:
             await page.wait_for_selector('efc-job-description, .job-description', timeout=PLAYWRIGHT_SELECTOR_TIMEOUT_MS)
         except Exception:
             await page.wait_for_timeout(PLAYWRIGHT_FALLBACK_WAIT_MS)
 
-        # Extract description text — .inner-content is the actual body inside efc-job-description
+        # .inner-content is the actual body inside efc-job-description
         description = await page.evaluate('''
             () => {
                 const elem = document.querySelector('efc-job-description .inner-content') ||
@@ -148,8 +200,7 @@ async def _fetch_job_description_async(browser, job_url: str) -> str:
         await page.close()
         await context.close()
 
-        description = ' '.join(description.split())[:JOB_CONTENT_MAX_CHARS]
-        return description
+        return ' '.join(description.split())[:JOB_CONTENT_MAX_CHARS]
 
     except Exception as e:
         print(f"[efinancialcareers] Could not fetch description for {job_url}: {e}")
