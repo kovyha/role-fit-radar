@@ -7,7 +7,8 @@ from urllib.parse import quote
 
 from playwright.async_api import async_playwright
 from config import (
-    EFINANCIAL_KEYWORDS, EFINANCIAL_TITLE_TERMS, EFINANCIAL_TITLE_BLOCKLIST, EFINANCIAL_PAGE_SIZE,
+    EFINANCIAL_KEYWORDS, EFINANCIAL_TITLE_TERMS, EFINANCIAL_TITLE_BLOCKLIST,
+    EFINANCIAL_SENIORITY_LEVELS, EFINANCIAL_PAGE_SIZE,
     JOB_CONTENT_MAX_CHARS,
     PLAYWRIGHT_PAGE_TIMEOUT_MS, PLAYWRIGHT_SELECTOR_TIMEOUT_MS, PLAYWRIGHT_FALLBACK_WAIT_MS,
 )
@@ -27,13 +28,14 @@ _LONDON_LNG = "-0.12758"
 
 def _build_search_url(keyword: str, location_filter: str, page: int = 1) -> str:
     keyword_slug = keyword.lower().replace(' ', '-')
+    seniority_params = "".join(f"&filters.seniority={level}" for level in EFINANCIAL_SENIORITY_LEVELS)
     return (
         f"{EFINANCIAL_BASE}/{keyword_slug}/in-london%2C-uk"
         f"?q={quote(keyword)}&location={quote(location_filter + ', UK')}"
         f"&latitude={_LONDON_LAT}&longitude={_LONDON_LNG}&countryCode=GB"
         f"&locationPrecision=City&radius=40&radiusUnit=km&pageSize={EFINANCIAL_PAGE_SIZE}"
         f"&currencyCode=GBP&language=en&includeUnspecifiedSalary=true"
-        f"&page={page}"
+        f"&page={page}{seniority_params}"
     )
 
 
