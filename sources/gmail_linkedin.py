@@ -13,7 +13,7 @@ from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
 from config import (
-    LINKEDIN_LABEL, LINKEDIN_EMAIL_FROM, GMAIL_IMAP_HOST,
+    LINKEDIN_LABEL, LINKEDIN_EMAIL_FROM, GMAIL_IMAP_HOST, LINKEDIN_TITLE_SUFFIXES,
     JOB_CONTENT_MAX_CHARS,
     PLAYWRIGHT_PAGE_TIMEOUT_MS, PLAYWRIGHT_SELECTOR_TIMEOUT_MS, PLAYWRIGHT_FALLBACK_WAIT_MS,
 )
@@ -174,8 +174,16 @@ def _parse_email_for_jobs(msg: email.message.Message) -> list[dict]:
                 continue
             job_url = f"https://www.linkedin.com/jobs/view/{job_id_match.group(1)}/"
 
-            # Extract title and metadata from surrounding elements
-            title = link.get_text(strip=True)
+            # Extract title — LinkedIn emails sometimes nest company/location/status
+            # text inside the same <a> tag, concatenated without separators.
+            # Take only the first line of text, then strip known LinkedIn suffixes.
+            raw_text = link.get_text(separator='\n', strip=True)
+            title = raw_text.splitlines()[0].strip() if raw_text else ""
+            # Strip metadata that appears mid-string when there are no line breaks
+            if '·' in title:
+                title = title[:title.index('·')].strip()
+            for suffix in LINKEDIN_TITLE_SUFFIXES:
+                title = title.replace(suffix, '').strip()
             if not title:
                 continue  # skip logo/image links that share the job URL but carry no text
 
