@@ -24,6 +24,8 @@ def assess_fit(job: dict, profile: str) -> dict:
     prompt = f"""You are assessing the fit between a candidate profile and a job description.
 Be direct and adversarial — surface real gaps, not just positives. Do not pad.
 
+Read the complete career history in the candidate profile. Draw on ALL listed roles when assessing strengths — recent roles reflect current scope but earlier roles may contain the deepest domain expertise.
+
 CANDIDATE PROFILE:
 {profile}
 
