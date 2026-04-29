@@ -35,10 +35,18 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 
+[tool.coverage.run]
+source = ["sources"]
+omit = ["sources/scraper.py"]
+
+[tool.coverage.report]
+fail_under = 80
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.1.0",
     "ruff>=0.15.12",
 ]
 

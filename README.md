@@ -79,6 +79,10 @@ In `config.py`, add to the `COMPANIES` list:
 
 ## Manual run
 
+### Scan mode (default)
+
+Fetches new jobs from all configured sources, assesses them, logs to Google Sheets, and sends a summary email.
+
 ```bash
 pip install -r requirements.txt
 export ANTHROPIC_API_KEY=...
@@ -88,6 +92,25 @@ export SHEET_ID=...
 python main.py
 ```
 
+### File mode
+
+Assess a single JD (or a directory of JDs) against your profile without writing to Sheets or sending email. Prints results to stdout.
+
+```bash
+python main.py --file path/to/job.pdf
+python main.py --file path/to/jds/          # all supported files in a directory
+python main.py --file https://docs.google.com/...  # Google Doc URL
+python main.py --file https://...           # SharePoint / direct download link
+```
+
+Supported formats: PDF, DOCX, XLSX, TXT.
+
+Optionally override the Google Sheets profile with a local plain-text file:
+
+```bash
+python main.py --file job.pdf --profile my_profile.txt
+```
+
 ---
 
 ## Project structure
@@ -95,13 +118,23 @@ python main.py
 ```
 role-fit-radar/
 ├── config.py                    # All configuration — version controlled
-├── main.py                      # Orchestrator
+├── main.py                      # Orchestrator (scan mode + --file mode)
 ├── assessor.py                  # Claude API fit assessment
 ├── sheets.py                    # Google Sheets read/write
 ├── gmail.py                     # Email summary via SMTP
 ├── sources/
 │   ├── greenhouse.py            # Greenhouse API fetcher
+│   ├── gmail_linkedin.py        # LinkedIn jobs via Gmail digest emails
+│   ├── efinancialcareers.py     # eFinancialCareers scraper
+│   ├── file_mode.py             # File/URL loader for --file mode
 │   └── scraper.py               # Playwright scraper stub (future)
+├── tests/
+│   ├── conftest.py              # Shared fixtures
+│   ├── test_assessor.py
+│   ├── test_greenhouse.py
+│   ├── test_gmail_linkedin.py
+│   ├── test_efinancialcareers.py
+│   └── test_file_mode.py
 ├── requirements.txt
 └── .github/workflows/scan.yml   # GitHub Actions cron (daily 5pm UTC)
 ```

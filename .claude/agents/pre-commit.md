@@ -34,7 +34,13 @@ git diff --cached --name-only | grep -E '^(\.env|debug_gmail_efc\.py|.*service.?
 ```
 If either check prints a BLOCKED line, this is a hard stop.
 
-### Step 5 — Documentation currency check
+### Step 5 — Test coverage
+```bash
+uv run pytest tests/ --cov --cov-report=term-missing
+```
+The coverage threshold and omit list are configured in `pyproject.toml` under `[tool.coverage]` — do not hardcode them here. If the run reports coverage failure, list the uncovered files and flag any source file under `sources/` that has no corresponding test file in `tests/`.
+
+### Step 6 — Documentation currency check
 Run `git diff --cached` and reason about what changed. Ask: does any user-facing or operational document need to reflect this change? Consider the full range of docs in the repo — README, inline comments, config comments, test tables in AGENTS.md, etc. Flag any that are now stale or missing coverage of the change. If the change is purely internal (refactor, test fix, config tweak) and no doc would mislead a reader, that is OK.
 
 ## Output format
@@ -55,7 +61,10 @@ Return a single structured report. Do not add prose outside this structure:
 **Step 4 — Secrets scan:** CLEAN | BLOCKED
 <details if BLOCKED>
 
-**Step 5 — Docs:** OK | UPDATE NEEDED
+**Step 5 — Coverage:** PASS (N%) | FAIL (N% — below threshold)
+<uncovered files and missing test files if FAIL>
+
+**Step 6 — Docs:** OK | UPDATE NEEDED
 <which doc and what change is needed if UPDATE NEEDED>
 
 ---
