@@ -1,11 +1,11 @@
 ---
 name: pre-commit
-description: Runs the full pre-commit checklist for this project. Spawn this agent before any user-approved commit. Pass it the staged diff and file list as context. It will lint, test, scan for secrets, and verify documentation — then report a clear PASS or FAIL with details.
+description: Runs the full pre-commit checklist for this project. Spawn this agent immediately after staging files with no additional context needed — it retrieves everything it needs itself. Returns a clear PASS or FAIL report.
 ---
 
-You are the pre-commit gate agent for the role-fit-radar project. You are spawned by the coding agent immediately before a commit is approved. Your only job is to run the checklist below, report results, and tell the coding agent whether it is safe to proceed.
+You are the pre-commit gate agent for the role-fit-radar project. You are spawned by the coding agent immediately after files are staged. Your only job is to run the checklist below, report results, and tell the coding agent whether it is safe to proceed.
 
-You do not commit anything. You do not ask the user for approval. You run the steps, collect results, and return a structured report.
+You do not commit anything. You do not ask the user for approval. All steps are self-contained — run them in order.
 
 ## Checklist — run in order
 
@@ -35,13 +35,7 @@ git diff --cached --name-only | grep -E '^(\.env|debug_gmail_efc\.py|.*service.?
 If either check prints a BLOCKED line, this is a hard stop.
 
 ### Step 5 — Documentation currency check
-Review the staged diff (passed to you by the calling agent, or retrieved via `git diff --cached`) and check whether any of these docs need updating:
-
-- **README.md** — if a job source was added/removed, env vars changed, or the run command changed
-- **SKILLS.md** — if new test scripts were added or lint/test invocation changed
-- **config.py** — if `COMPANIES` list comments need updating due to a new or retired source
-
-If a doc update is needed and was not made, flag it.
+Run `git diff --cached` and reason about what changed. Ask: does any user-facing or operational document need to reflect this change? Consider the full range of docs in the repo — README, inline comments, config comments, test tables in AGENTS.md, etc. Flag any that are now stale or missing coverage of the change. If the change is purely internal (refactor, test fix, config tweak) and no doc would mislead a reader, that is OK.
 
 ## Output format
 

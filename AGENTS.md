@@ -21,13 +21,13 @@ If a test script does not yet exist for a new source you add, **create one** alo
 
 ## Pre-Commit Checklist (before any user-approved commit)
 
-**Do not run this checklist yourself.** Spawn the `pre-commit` subagent and pass it the staged diff as context. Only proceed to ask the user for commit approval if the agent reports **Overall: PASS**.
+**Do not run this checklist yourself.** The moment files are staged, the very next action must be spawning the `pre-commit` subagent — no intermediate bash commands, no summary to the user first.
 
 ```
-Agent(subagent_type="pre-commit", prompt="Run the pre-commit checklist. Staged diff: <paste git diff --cached output>")
+Agent(subagent_type="pre-commit", prompt="Run the pre-commit checklist.")
 ```
 
-If the agent reports FAIL, fix the issues it lists, re-stage, and re-spawn the agent before asking for approval.
+The agent needs no context passed to it — all steps are self-contained. Only proceed to ask the user for commit approval if the agent reports **Overall: PASS**. If it reports FAIL, fix the issues, re-stage, and re-spawn before asking for approval.
 
 The steps the agent runs, for reference:
 
