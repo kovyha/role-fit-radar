@@ -243,3 +243,21 @@ class TestFetchJobsAsync:
             jobs = fetch_jobs("London")
 
             assert jobs == []
+
+    @pytest.mark.asyncio
+    async def test_fetch_jobs_page_error_triggers_cleanup(self):
+        """page.goto error closes page and context before breaking the keyword loop."""
+        with patch('sources.efinancialcareers.async_playwright') as mock_pw:
+            mock_browser, mock_context, mock_page = _make_browser_mock()
+            mock_p = AsyncMock()
+            mock_pw.return_value.__aenter__.return_value = mock_p
+            mock_p.chromium.launch.return_value = mock_browser
+
+            mock_page.goto.side_effect = Exception("Navigation timeout")
+
+            from sources.efinancialcareers import _fetch_jobs_async
+            jobs = await _fetch_jobs_async("London", set())
+
+            assert jobs == []
+            mock_page.close.assert_called()
+            mock_context.close.assert_called()

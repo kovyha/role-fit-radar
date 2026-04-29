@@ -4,6 +4,9 @@ from unittest.mock import patch, MagicMock
 
 from sources.file_mode import (
     _google_doc_export_url,
+    _extract_pdf,
+    _extract_docx,
+    _extract_xlsx,
     load_from_url,
     load_from_file,
     load_from_directory,
@@ -190,3 +193,64 @@ class TestLoadJd:
             result = load_jd(str(f))
         m.assert_called_once_with(str(f))
         assert result == [("job", "content")]
+
+
+class TestExtractFunctions:
+
+    def test_extract_pdf_reads_all_pages(self):
+        mock_page1 = MagicMock()
+        mock_page1.extract_text.return_value = "first page"
+        mock_page2 = MagicMock()
+        mock_page2.extract_text.return_value = "second page"
+        mock_reader = MagicMock()
+        mock_reader.pages = [mock_page1, mock_page2]
+        with patch("pypdf.PdfReader", return_value=mock_reader):
+            result = _extract_pdf(b"fake pdf bytes")
+        assert result == "first page\nsecond page"
+
+    def test_extract_pdf_handles_none_page_text(self):
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = None
+        mock_reader = MagicMock()
+        mock_reader.pages = [mock_page]
+        with patch("pypdf.PdfReader", return_value=mock_reader):
+            result = _extract_pdf(b"fake pdf bytes")
+        assert result == ""
+
+    def test_extract_docx_joins_non_empty_paragraphs(self):
+        mock_para1 = MagicMock()
+        mock_para1.text = "First paragraph"
+        mock_para2 = MagicMock()
+        mock_para2.text = "   "  # whitespace-only — skipped by the if p.text.strip() guard
+        mock_para3 = MagicMock()
+        mock_para3.text = "Second paragraph"
+        mock_doc = MagicMock()
+        mock_doc.paragraphs = [mock_para1, mock_para2, mock_para3]
+        with patch("docx.Document", return_value=mock_doc):
+            result = _extract_docx(b"fake docx bytes")
+        assert result == "First paragraph\nSecond paragraph"
+
+    def test_extract_xlsx_formats_rows_as_pipe_separated(self):
+        mock_ws = MagicMock()
+        mock_ws.iter_rows.return_value = [
+            ("Job Title", "London", None),   # None filtered out
+            ("  ", "Acme Corp", "£100k"),    # whitespace-only cell filtered out
+        ]
+        mock_wb = MagicMock()
+        mock_wb.worksheets = [mock_ws]
+        with patch("openpyxl.load_workbook", return_value=mock_wb):
+            result = _extract_xlsx(b"fake xlsx bytes")
+        assert "Job Title | London" in result
+        assert "Acme Corp | £100k" in result
+
+    def test_extract_xlsx_skips_all_null_rows(self):
+        mock_ws = MagicMock()
+        mock_ws.iter_rows.return_value = [
+            (None, None),
+            ("content",),
+        ]
+        mock_wb = MagicMock()
+        mock_wb.worksheets = [mock_ws]
+        with patch("openpyxl.load_workbook", return_value=mock_wb):
+            result = _extract_xlsx(b"fake xlsx bytes")
+        assert result == "content"

@@ -40,7 +40,7 @@ source = ["sources"]
 omit = ["sources/scraper.py"]
 
 [tool.coverage.report]
-fail_under = 80
+fail_under = 90
 
 [dependency-groups]
 dev = [

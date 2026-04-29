@@ -1,4 +1,5 @@
-from unittest.mock import patch
+import pytest
+from unittest.mock import patch, AsyncMock
 
 from sources.gmail_linkedin import _parse_email_for_jobs
 
@@ -92,6 +93,20 @@ class TestParseEmailForJobs:
         assert len(jobs) == 1
         assert "view/123/" in jobs[0]['url']
 
+    def test_parse_email_strips_middle_dot_from_title(self, create_email_message):
+        """LinkedIn emails sometimes concatenate 'Title · Company · Location' without line breaks."""
+        html = """
+        <html><body>
+            <div><a href="https://www.linkedin.com/jobs/view/555/">Senior Quant Dev · Goldman Sachs · London</a></div>
+        </body></html>
+        """
+        msg = create_email_message(html)
+
+        jobs = _parse_email_for_jobs(msg)
+
+        assert len(jobs) == 1
+        assert jobs[0]["title"] == "Senior Quant Dev"
+
 
 FAKE_ENV = {"GMAIL_USER": "test@gmail.com", "GMAIL_APP_PASSWORD": "testpassword"}
 
@@ -182,3 +197,138 @@ class TestFetchJobsIMAP:
 
         args, _ = mock_imap.login.call_args
         assert args[1] == "abcdefghijklmnop"
+
+    @patch.dict('os.environ', FAKE_ENV)
+    @patch('sources.gmail_linkedin.imaplib.IMAP4_SSL')
+    def test_fetch_jobs_list_not_ok(self, mock_imap_class, mock_imap_connection):
+        """mail.list() non-OK status closes connection and returns empty list."""
+        mock_imap = mock_imap_connection
+        mock_imap.list.return_value = ('FAIL', [])
+        mock_imap_class.return_value = mock_imap
+
+        from sources.gmail_linkedin import fetch_jobs
+        jobs = fetch_jobs()
+
+        assert jobs == []
+        assert mock_imap.close.called
+        assert mock_imap.logout.called
+
+    @patch.dict('os.environ', FAKE_ENV)
+    @patch('sources.gmail_linkedin.imaplib.IMAP4_SSL')
+    def test_fetch_jobs_select_not_ok(self, mock_imap_class, mock_imap_connection):
+        """mail.select() non-OK status closes connection and returns empty list."""
+        mock_imap = mock_imap_connection
+        mock_imap.select.return_value = ('FAIL', [])
+        mock_imap_class.return_value = mock_imap
+
+        from sources.gmail_linkedin import fetch_jobs
+        jobs = fetch_jobs()
+
+        assert jobs == []
+        assert mock_imap.close.called
+        assert mock_imap.logout.called
+
+    @patch.dict('os.environ', FAKE_ENV)
+    @patch('sources.gmail_linkedin.imaplib.IMAP4_SSL')
+    @patch('sources.gmail_linkedin._fetch_job_description')
+    def test_fetch_jobs_enriches_company_and_location(self, mock_fetch_desc, mock_imap_class, mock_imap_connection, linkedin_email_html, create_email_message):
+        """Non-empty company/location from description fetch overwrite the email stub values."""
+        mock_imap = mock_imap_connection
+        mock_imap_class.return_value = mock_imap
+        test_msg = create_email_message(linkedin_email_html)
+        mock_imap.fetch.return_value = ('OK', [(None, test_msg.as_bytes())])
+        mock_fetch_desc.return_value = {
+            "content": "Full job description",
+            "company": "DeepMind",
+            "location": "Zurich",
+        }
+
+        from sources.gmail_linkedin import fetch_jobs
+        jobs = fetch_jobs()
+
+        assert len(jobs) > 0
+        assert all(j["company"] == "DeepMind" for j in jobs)
+        assert all(j["location"] == "Zurich" for j in jobs)
+
+
+class TestFetchJobDescription:
+    """Tests for _fetch_job_description() sync wrapper."""
+
+    def test_returns_data_from_async(self):
+        """Sync wrapper returns result from the async fetch."""
+        with patch("sources.gmail_linkedin._fetch_description_async", new_callable=AsyncMock) as mock_async:
+            mock_async.return_value = {"content": "Build algos.", "company": "HSBC", "location": "London"}
+            from sources.gmail_linkedin import _fetch_job_description
+            result = _fetch_job_description("https://www.linkedin.com/jobs/view/999/")
+        assert result["content"] == "Build algos."
+        assert result["company"] == "HSBC"
+
+    def test_exception_returns_empty_dict(self):
+        """Exception in async fetch returns safe empty dict without raising."""
+        with patch("sources.gmail_linkedin._fetch_description_async", new_callable=AsyncMock) as mock_async:
+            mock_async.side_effect = Exception("network error")
+            from sources.gmail_linkedin import _fetch_job_description
+            result = _fetch_job_description("https://www.linkedin.com/jobs/view/999/")
+        assert result == {"content": "", "company": "", "location": ""}
+
+
+class TestFetchDescriptionAsync:
+    """Tests for _fetch_description_async() LinkedIn Playwright scraper."""
+
+    def _make_playwright_mock(self):
+        mock_browser = AsyncMock()
+        mock_context = AsyncMock()
+        mock_page = AsyncMock()
+        mock_p = AsyncMock()
+        mock_browser.new_context.return_value = mock_context
+        mock_context.new_page.return_value = mock_page
+        return mock_p, mock_browser, mock_context, mock_page
+
+    @pytest.mark.asyncio
+    async def test_returns_content_company_location(self):
+        """Happy path: extracts description, company, and location from the page."""
+        with patch("sources.gmail_linkedin.async_playwright") as mock_pw:
+            mock_p, mock_browser, mock_context, mock_page = self._make_playwright_mock()
+            mock_pw.return_value.__aenter__.return_value = mock_p
+            mock_p.chromium.launch.return_value = mock_browser
+            mock_page.evaluate.return_value = {
+                "description": "Build execution algorithms.",
+                "company": "Goldman Sachs",
+                "location": "London",
+            }
+
+            from sources.gmail_linkedin import _fetch_description_async
+            result = await _fetch_description_async("https://www.linkedin.com/jobs/view/123/")
+
+        assert result["content"] == "Build execution algorithms."
+        assert result["company"] == "Goldman Sachs"
+        assert result["location"] == "London"
+
+    @pytest.mark.asyncio
+    async def test_playwright_error_returns_empty_dict(self):
+        """Playwright launch failure returns safe empty dict without raising."""
+        with patch("sources.gmail_linkedin.async_playwright") as mock_pw:
+            mock_pw.return_value.__aenter__.side_effect = Exception("Browser launch failed")
+
+            from sources.gmail_linkedin import _fetch_description_async
+            result = await _fetch_description_async("https://www.linkedin.com/jobs/view/123/")
+
+        assert result == {"content": "", "company": "", "location": ""}
+
+    @pytest.mark.asyncio
+    async def test_content_truncated_to_max_chars(self):
+        """Description longer than JOB_CONTENT_MAX_CHARS is truncated."""
+        with patch("sources.gmail_linkedin.async_playwright") as mock_pw:
+            mock_p, mock_browser, mock_context, mock_page = self._make_playwright_mock()
+            mock_pw.return_value.__aenter__.return_value = mock_p
+            mock_p.chromium.launch.return_value = mock_browser
+            mock_page.evaluate.return_value = {
+                "description": "x" * 10000,
+                "company": "",
+                "location": "",
+            }
+
+            from sources.gmail_linkedin import _fetch_description_async
+            result = await _fetch_description_async("https://www.linkedin.com/jobs/view/123/")
+
+        assert len(result["content"]) == 6000
