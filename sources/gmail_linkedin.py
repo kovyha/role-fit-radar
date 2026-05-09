@@ -77,16 +77,22 @@ def fetch_jobs(seen_urls: set = None) -> list[dict]:
             mail.logout()
             return []
 
-        # Step 4: Search for messages from LinkedIn
-        status, message_nums = mail.search(None, 'UNSEEN', 'FROM', LINKEDIN_EMAIL_FROM)
+        # Step 4: Search for unseen messages from any known LinkedIn sender address
+        senders = LINKEDIN_EMAIL_FROM if isinstance(LINKEDIN_EMAIL_FROM, list) else [LINKEDIN_EMAIL_FROM]
+        all_nums: set[bytes] = set()
+        for sender in senders:
+            status, result = mail.search(None, 'UNSEEN', 'FROM', sender)
+            if status == 'OK' and result[0]:
+                all_nums.update(result[0].split())
 
-        if status != 'OK' or not message_nums[0]:
+        if not all_nums:
             print("[gmail_linkedin] No LinkedIn job alert emails found")
             mail.close()
             mail.logout()
             return []
 
-        print(f"[gmail_linkedin] Found {len(message_nums[0].split())} email(s) to parse")
+        message_nums = [b' '.join(sorted(all_nums))]
+        print(f"[gmail_linkedin] Found {len(all_nums)} email(s) to parse")
 
         # Step 5: Parse each email and extract job listings
         for num in message_nums[0].split():
