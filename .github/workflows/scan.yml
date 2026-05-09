@@ -2,7 +2,7 @@ name: Role Fit Radar
 
 on:
   schedule:
-    - cron: '0 17 * * *'   # Daily at 5pm UTC (6pm BST / 6pm GMT)
+    - cron: '0 17 * * *'   # Daily at 5pm UTC — adjust to your preferred time
   workflow_dispatch:         # Manual trigger — useful for testing
 
 jobs:
@@ -23,6 +23,11 @@ jobs:
 
       - name: Install Playwright browsers
         run: playwright install chromium --with-deps
+
+      - name: Write config
+        run: echo "$CONFIG_PY" > config.py
+        env:
+          CONFIG_PY: ${{ secrets.CONFIG_PY }}
 
       - name: Run scanner
         run: python main.py

@@ -3,6 +3,9 @@
 .env
 service-account*.json
 
+# Personal configuration — copy config.example.py to config.py and fill in your own values
+config.py
+
 # Local debug scripts
 debug_gmail_efc.py
 
