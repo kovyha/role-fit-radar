@@ -121,14 +121,15 @@ class TestFetchJobsAsync:
             mock_page.query_selector_all.return_value = []
 
             from sources.efinancialcareers import _fetch_jobs_async
+            from config import TITLE_TERMS
             await _fetch_jobs_async("London", set())
 
             first_url = mock_page.goto.call_args_list[0][0][0]
             # Keyword must appear in the URL path segment, not as a ?keyword= param
-            assert "/jobs/algorithmic-trading/" in first_url
             assert "?keyword=" not in first_url
-            # q= is the query param the SPA honours
-            assert "q=Algorithmic%20Trading" in first_url
+            assert "/jobs/" in first_url
+            # q= param must contain a URL-encoded term from TITLE_TERMS
+            assert any(f"q={term.replace(' ', '%20')}" in first_url for term in TITLE_TERMS)
             # Pagination starts at page 1
             assert "page=1" in first_url
 
@@ -180,15 +181,14 @@ class TestFetchJobsAsync:
 
             mock_page.query_selector_all.return_value = []
 
+            # Pass a multi-word term explicitly to test encoding
             from sources.efinancialcareers import _fetch_jobs_async
-            await _fetch_jobs_async("London", set())
+            await _fetch_jobs_async("London", set(), search_terms=frozenset(["low latency"]))
 
-            # "Algorithmic Trading" is the first keyword — spaces become hyphens in
-            # the path and %20 in the q= param; neither form should have a raw space
             first_url = mock_page.goto.call_args_list[0][0][0]
-            assert "algorithmic-trading" in first_url   # path slug
-            assert "Algorithmic%20Trading" in first_url  # q= param
-            assert "Algorithmic Trading" not in first_url
+            assert "low-latency" in first_url       # path slug: spaces → hyphens
+            assert "q=low%20latency" in first_url   # q= param: spaces → %20
+            assert "low latency" not in first_url   # no raw spaces anywhere
 
     @pytest.mark.asyncio
     async def test_fetch_jobs_sets_user_agent_via_headers(self):

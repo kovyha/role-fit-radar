@@ -7,12 +7,13 @@ from urllib.parse import quote
 
 from playwright.async_api import async_playwright
 from config import (
-    EFINANCIAL_KEYWORDS, EFINANCIAL_SENIORITY_LEVELS, EFINANCIAL_PAGE_SIZE,
+    EFINANCIAL_SENIORITY_LEVELS, EFINANCIAL_PAGE_SIZE,
     EFINANCIAL_LOCATION_SLUG, EFINANCIAL_LOCATION_LAT, EFINANCIAL_LOCATION_LNG,
     JOB_CONTENT_MAX_CHARS,
     PLAYWRIGHT_PAGE_TIMEOUT_MS, PLAYWRIGHT_SELECTOR_TIMEOUT_MS, PLAYWRIGHT_FALLBACK_WAIT_MS,
+    TITLE_TERMS, TITLE_BLOCKLIST,
 )
-from sources.filters import is_relevant_title
+from sources.filters import passes_local_filter
 
 
 EFINANCIAL_BASE = "https://www.efinancialcareers.co.uk/jobs"
@@ -34,10 +35,16 @@ def _build_search_url(keyword: str, location_filter: str, page: int = 1) -> str:
     )
 
 
-
-def fetch_jobs(location_filter: str, seen_urls: set = None) -> list[dict]:
+def fetch_jobs(
+    location_filter: str,
+    seen_urls: set = None,
+    *,
+    search_terms: frozenset = TITLE_TERMS,
+    allowlist: frozenset = frozenset(),
+    blocklist: frozenset = TITLE_BLOCKLIST,
+) -> list[dict]:
     """
-    Fetch jobs from eFinancialCareers for each keyword, filtered by location.
+    Fetch jobs from eFinancialCareers for each search term, filtered by location.
     Pass seen_urls (from Google Sheet) to skip description fetches for known jobs.
 
     Returns:
@@ -45,19 +52,25 @@ def fetch_jobs(location_filter: str, seen_urls: set = None) -> list[dict]:
     """
     try:
         import asyncio
-        return asyncio.run(_fetch_jobs_async(location_filter, seen_urls or set()))
+        return asyncio.run(_fetch_jobs_async(location_filter, seen_urls or set(), search_terms, allowlist, blocklist))
     except Exception as e:
         print(f"[efinancialcareers] Error fetching jobs: {e}")
         return []
 
 
-async def _fetch_jobs_async(location_filter: str, sheet_seen_urls: set) -> list[dict]:
+async def _fetch_jobs_async(
+    location_filter: str,
+    sheet_seen_urls: set,
+    search_terms: frozenset = TITLE_TERMS,
+    allowlist: frozenset = frozenset(),
+    blocklist: frozenset = TITLE_BLOCKLIST,
+) -> list[dict]:
     """
     Async helper — two phases:
-      Phase 1: collect all job stubs across every keyword (title, url, company, location)
+      Phase 1: collect all job stubs across every search term (title, url, company, location)
       Phase 2: fetch descriptions only for URLs not already in the Google Sheet
     """
-    print(f"[efinancialcareers] Searching {len(EFINANCIAL_KEYWORDS)} keyword(s): {', '.join(EFINANCIAL_KEYWORDS)}")
+    print(f"[efinancialcareers] Searching {len(search_terms)} term(s): {', '.join(sorted(search_terms))}")
 
     stubs = []
     seen_in_run: set[str] = set()
@@ -68,7 +81,7 @@ async def _fetch_jobs_async(location_filter: str, sheet_seen_urls: set) -> list[
             browser = await p.chromium.launch(headless=True)
 
             # ── Phase 1: collect stubs (paginated) ───────────────────────────
-            for keyword in EFINANCIAL_KEYWORDS:
+            for keyword in search_terms:
                 page_num = 1
                 keyword_first_url = None
                 keyword_total_cards = 0
@@ -101,7 +114,7 @@ async def _fetch_jobs_async(location_filter: str, sheet_seen_urls: set) -> list[
                                 if (job_url
                                         and job_url not in seen_in_run
                                         and job_url not in sheet_seen_urls
-                                        and is_relevant_title(title)):
+                                        and passes_local_filter(title, allowlist, blocklist)):
                                     seen_in_run.add(job_url)
                                     stubs.append({
                                         "title":      title or "Unknown Role",

@@ -37,10 +37,10 @@ def _run(companies, jobs_by_key=None, seen_urls=None, seen_title_keys=None):
     """
     jobs_by_key = jobs_by_key or {}
 
-    def gh_effect(board, loc, seen_urls):
+    def gh_effect(board, loc, seen_urls, **kwargs):
         return jobs_by_key.get(("greenhouse", board), [])
 
-    def ashby_effect(org, loc, seen_urls):
+    def ashby_effect(org, loc, seen_urls, **kwargs):
         return jobs_by_key.get(("ashby", org), [])
 
     with patch("main.COMPANIES",                   companies), \

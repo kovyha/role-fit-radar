@@ -14,8 +14,8 @@ import html as html_lib
 import time
 import requests
 from bs4 import BeautifulSoup
-from config import JOB_CONTENT_MAX_CHARS, REQUEST_TIMEOUT_SECS
-from sources.filters import is_relevant_title
+from config import JOB_CONTENT_MAX_CHARS, REQUEST_TIMEOUT_SECS, TITLE_TERMS, TITLE_BLOCKLIST
+from sources.filters import passes_local_filter
 
 
 _HEADERS = {
@@ -27,7 +27,7 @@ _HEADERS = {
 _PAGE_SIZE = 20  # Workday hard-caps at 20; any higher returns null total + empty results
 
 
-def fetch_jobs(tenant: str, board: str, location_filter: str, seen_urls: set | None = None) -> list[dict]:
+def fetch_jobs(tenant: str, board: str, location_filter: str, seen_urls: set | None = None, *, allowlist: frozenset = TITLE_TERMS, blocklist: frozenset = TITLE_BLOCKLIST) -> list[dict]:
     """
     Fetch new jobs from a Workday board, filtered by location.
 
@@ -63,7 +63,7 @@ def fetch_jobs(tenant: str, board: str, location_filter: str, seen_urls: set | N
     for stub in stubs:
         if stub["url"] in seen_urls:
             continue
-        if not is_relevant_title(stub["title"]):
+        if not passes_local_filter(stub["title"], allowlist, blocklist):
             continue
         content = _fetch_content(api_base, stub.pop("external_path"))
         stub["content"] = content

@@ -52,7 +52,7 @@ Tests use `unittest.mock` to avoid real network calls — safe to run locally at
 `debug_gmail_efc.py` tests Gmail/LinkedIn IMAP fetching and eFC scraping without writing to Sheets or sending email. Runs eFC with one keyword for speed.
 
 ```bash
-# Uses first keyword from EFINANCIAL_KEYWORDS by default
+# Uses first term from TITLE_TERMS by default
 uv run python debug_gmail_efc.py
 
 # Override the keyword

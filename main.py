@@ -48,20 +48,23 @@ def main():
     for company in COMPANIES:
         print(f"[main] Scanning {company['name']} ({company['source']})...")
 
+        allowlist = company.get("local_allowlist")
+        blocklist = company.get("local_blocklist")
+
         if company["source"] == "greenhouse":
-            jobs = greenhouse_fetch(company["board"], LOCATION_FILTER, seen_urls=seen_urls)
+            jobs = greenhouse_fetch(company["board"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
         elif company["source"] == "scraper":
             jobs = scraper_fetch(company["url"], LOCATION_FILTER)
         elif company["source"] == "linkedin_email":
             jobs = linkedin_fetch(seen_urls=seen_urls)
         elif company["source"] == "efinancialcareers":
-            jobs = efinancial_fetch(LOCATION_FILTER, seen_urls=seen_urls)
+            jobs = efinancial_fetch(LOCATION_FILTER, seen_urls=seen_urls, search_terms=company.get("search_terms"), allowlist=allowlist, blocklist=blocklist)
         elif company["source"] == "ashby":
-            jobs = ashby_fetch(company["org"], LOCATION_FILTER, seen_urls=seen_urls)
+            jobs = ashby_fetch(company["org"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
         elif company["source"] == "eightfold":
-            jobs = eightfold_fetch(company["domain"], LOCATION_FILTER, seen_urls=seen_urls)
+            jobs = eightfold_fetch(company["domain"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
         elif company["source"] == "workday":
-            jobs = workday_fetch(company["tenant"], company["board"], LOCATION_FILTER, seen_urls=seen_urls)
+            jobs = workday_fetch(company["tenant"], company["board"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
         else:
             print(f"[main] Unknown source '{company['source']}' for {company['name']} — skipping")
             continue

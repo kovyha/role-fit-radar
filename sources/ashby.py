@@ -3,14 +3,14 @@
 # No authentication required. One request returns all jobs with descriptions inline.
 
 import requests
-from config import JOB_CONTENT_MAX_CHARS, REQUEST_TIMEOUT_SECS
-from sources.filters import is_relevant_title
+from config import JOB_CONTENT_MAX_CHARS, REQUEST_TIMEOUT_SECS, TITLE_TERMS, TITLE_BLOCKLIST
+from sources.filters import passes_local_filter
 
 
 ASHBY_API = "https://api.ashbyhq.com/posting-api/job-board/{org}"
 
 
-def fetch_jobs(org: str, location_filter: str, seen_urls: set | None = None) -> list[dict]:
+def fetch_jobs(org: str, location_filter: str, seen_urls: set | None = None, *, allowlist: frozenset = TITLE_TERMS, blocklist: frozenset = TITLE_BLOCKLIST) -> list[dict]:
     """
     Fetch new jobs from an Ashby job board, filtered by location.
 
@@ -43,7 +43,7 @@ def fetch_jobs(org: str, location_filter: str, seen_urls: set | None = None) -> 
     for job in jobs:
         if not _matches_location(job, location_filter):
             continue
-        if not is_relevant_title(job.get("title", "")):
+        if not passes_local_filter(job.get("title", ""), allowlist, blocklist):
             continue
 
         job_url = job.get("jobUrl", "")

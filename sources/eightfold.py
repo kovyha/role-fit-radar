@@ -6,11 +6,11 @@
 import html as html_lib
 import requests
 from bs4 import BeautifulSoup
-from config import JOB_CONTENT_MAX_CHARS, REQUEST_TIMEOUT_SECS
-from sources.filters import is_relevant_title
+from config import JOB_CONTENT_MAX_CHARS, REQUEST_TIMEOUT_SECS, TITLE_TERMS, TITLE_BLOCKLIST
+from sources.filters import passes_local_filter
 
 
-def fetch_jobs(domain: str, location_filter: str, seen_urls: set | None = None) -> list[dict]:
+def fetch_jobs(domain: str, location_filter: str, seen_urls: set | None = None, *, allowlist: frozenset = TITLE_TERMS, blocklist: frozenset = TITLE_BLOCKLIST) -> list[dict]:
     """
     Fetch new jobs from an Eightfold board, filtered by location.
 
@@ -40,7 +40,7 @@ def fetch_jobs(domain: str, location_filter: str, seen_urls: set | None = None) 
     for stub in stubs:
         if stub["url"] in seen_urls:
             continue
-        if not is_relevant_title(stub["title"]):
+        if not passes_local_filter(stub["title"], allowlist, blocklist):
             continue
         content = _fetch_content(detail_base, domain, stub.pop("id"))
         stub["content"] = content

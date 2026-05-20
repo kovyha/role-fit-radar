@@ -1,4 +1,4 @@
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 from sources.workday import fetch_jobs, _discover_location_ids, _fetch_content, _strip_html
 
 
