@@ -24,6 +24,7 @@ from sources.gmail_linkedin import fetch_jobs as linkedin_fetch
 from sources.efinancialcareers import fetch_jobs as efinancial_fetch
 from sources.ashby import fetch_jobs as ashby_fetch
 from sources.eightfold import fetch_jobs as eightfold_fetch
+from sources.workday import fetch_jobs as workday_fetch
 from sheets import get_seen_urls, get_seen_title_company_keys, get_profile, append_jobs
 from assessor import assess_fit
 from gmail import send_summary
@@ -59,6 +60,8 @@ def main():
             jobs = ashby_fetch(company["org"], LOCATION_FILTER, seen_urls=seen_urls)
         elif company["source"] == "eightfold":
             jobs = eightfold_fetch(company["domain"], LOCATION_FILTER, seen_urls=seen_urls)
+        elif company["source"] == "workday":
+            jobs = workday_fetch(company["tenant"], company["board"], LOCATION_FILTER, seen_urls=seen_urls)
         else:
             print(f"[main] Unknown source '{company['source']}' for {company['name']} — skipping")
             continue
@@ -68,7 +71,7 @@ def main():
 
         # Step 5: Assess each new role
         for job in new_jobs:
-            if company["source"] in ("greenhouse", "ashby", "eightfold"):
+            if company["source"] in ("greenhouse", "ashby", "eightfold", "workday"):
                 job["company"] = company["name"]
             title_key = f"{job.get('title', '').lower()}|{job.get('company', '').lower()}"
             if title_key in seen_title_keys:
