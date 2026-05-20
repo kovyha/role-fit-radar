@@ -105,7 +105,7 @@ class TestFetchJobs:
             "jobs": greenhouse_stubs_response["jobs"] + [
                 {
                     "id": 1003,
-                    "title": "Quant Researcher",
+                    "title": "Quant Developer",
                     "absolute_url": "https://www.anthropic.com/careers/1003",
                     "location": {"name": "London, UK"},
                     "departments": [{"name": "Research"}],
@@ -118,7 +118,7 @@ class TestFetchJobs:
             jobs = fetch_jobs("anthropic", "London", seen_urls=seen)
 
         assert len(jobs) == 1
-        assert jobs[0]["title"] == "Quant Researcher"
+        assert jobs[0]["title"] == "Quant Developer"
 
 
     def test_irrelevant_title_filtered_out(self):

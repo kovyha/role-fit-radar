@@ -32,7 +32,7 @@ def _detail_response(job_description):
 
 class TestFetchJobs:
     def test_returns_new_jobs_with_content(self):
-        stub = _stub(1001, "Quant Researcher", "https://mlp.eightfold.ai/careers/job/1001")
+        stub = _stub(1001, "Quant Developer", "https://mlp.eightfold.ai/careers/job/1001")
         list_mock = _list_response([stub])
         detail_mock = _detail_response("<p>Exciting quant role in London.</p>")
 
@@ -40,7 +40,7 @@ class TestFetchJobs:
             jobs = fetch_jobs("mlp.com", "London")
 
         assert len(jobs) == 1
-        assert jobs[0]["title"] == "Quant Researcher"
+        assert jobs[0]["title"] == "Quant Developer"
         assert jobs[0]["url"] == "https://mlp.eightfold.ai/careers/job/1001"
         assert "Exciting quant role" in jobs[0]["content"]
         assert "<p>" not in jobs[0]["content"]

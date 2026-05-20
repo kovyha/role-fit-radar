@@ -7,25 +7,86 @@
 
 import os
 
+# ── Title filter lists ────────────────────────────────────────────────────────
+# Lowercase substrings checked against each job's title.
+# A title must match at least one allowlist term and no blocklist entry to pass.
+TITLE_TERMS = frozenset([
+    "term1", "term2", "term3",
+])
+
+# Optional secondary allowlist for small, curated company boards where generic
+# tech titles (e.g. "Platform Engineer", "C++ Developer") are still relevant.
+# Use TITLE_TERMS | TECH_TERMS as local_allowlist for those companies.
+TECH_TERMS = frozenset([
+    "engineer", "developer", "architect", "platform", "software",
+])
+
+# Titles containing any of these are rejected even if they match an allowlist.
+TITLE_BLOCKLIST = frozenset([
+    "recruiter",
+    "relocation",
+    "junior",
+    "intern",
+    "graduate",
+])
+
+# ── Company / source registry ─────────────────────────────────────────────────
+# Each entry must include:
+#   local_allowlist  — frozenset of substrings the title must match (empty = skip check)
+#   local_blocklist  — frozenset of substrings that disqualify a title
+#
+# Broad-fetch sources (Greenhouse, Ashby, Workday, Eightfold) fetch all company
+# jobs then filter locally — set local_allowlist=TITLE_TERMS (or | TECH_TERMS for
+# small curated boards where generic tech titles are still relevant).
+#
+# For companies where all roles are in scope (e.g. AI firms), set
+# local_allowlist=frozenset() to skip the allowlist check entirely.
+#
+# eFinancialCareers uses search_terms for server-side keyword search; set
+# local_allowlist=frozenset() since the server already filters by search_terms.
+
 COMPANIES = [
-    # Greenhouse-hosted companies (uses the public jobs API — no scraping needed).
-    # Find the board slug at: https://boards.greenhouse.io/{slug}
-    # {"name": "Acme Corp", "source": "greenhouse", "board": "acmecorp"},
+    # Greenhouse (broad-fetch, domain-filtered):
+    # {"name": "Acme Quant", "source": "greenhouse", "board": "acmequant",
+    #  "local_allowlist": TITLE_TERMS, "local_blocklist": TITLE_BLOCKLIST},
+
+    # Greenhouse (small curated board — also catch generic tech titles):
+    # {"name": "Acme HFT", "source": "greenhouse", "board": "acmehft",
+    #  "local_allowlist": TITLE_TERMS | TECH_TERMS, "local_blocklist": TITLE_BLOCKLIST},
+
+    # Greenhouse (AI firm — fetch all roles):
+    # {"name": "Acme AI", "source": "greenhouse", "board": "acmeai",
+    #  "local_allowlist": frozenset(), "local_blocklist": TITLE_BLOCKLIST},
+
+    # Ashby:
+    # {"name": "Acme Corp", "source": "ashby", "org": "acmecorp",
+    #  "local_allowlist": frozenset(), "local_blocklist": TITLE_BLOCKLIST},
+
+    # Eightfold:
+    # {"name": "Acme Corp", "source": "eightfold", "domain": "acme.com",
+    #  "local_allowlist": TITLE_TERMS, "local_blocklist": TITLE_BLOCKLIST},
+
+    # Workday:
+    # {"name": "Acme Corp", "source": "workday", "tenant": "acme", "board": "Acme_Professional",
+    #  "local_allowlist": TITLE_TERMS, "local_blocklist": TITLE_BLOCKLIST},
 
     # LinkedIn job alert emails (requires Gmail IMAP + LinkedIn job alert setup):
     {
         "name": "LinkedIn",
-        "source": "linkedin_email"
+        "source": "linkedin_email",
     },
-    # eFinancialCareers (Playwright scraper — finance/banking/tech roles):
+
+    # eFinancialCareers — search_terms drives server-side keyword search:
     {
         "name": "eFinancialCareers",
-        "source": "efinancialcareers"
-    }
+        "source": "efinancialcareers",
+        "search_terms": TITLE_TERMS,
+        "local_allowlist": frozenset(),
+        "local_blocklist": TITLE_BLOCKLIST,
+    },
 ]
 
-# Location string passed to job sources that support free-text location filtering.
-# Leave empty to disable (not all sources support this).
+# ── General settings ──────────────────────────────────────────────────────────
 LOCATION_FILTER = ""  # e.g. "London", "New York", "Singapore"
 
 EMAIL_SENDER = os.environ.get("GMAIL_USER", "")
@@ -35,7 +96,6 @@ EMAIL_SUBJECT = "Role Fit Radar — New Roles Found"
 JOBS_TAB = "Jobs"
 PROFILE_TAB = "Profile"
 
-# Sheet column order — must match append_jobs() in sheets.py
 JOBS_COLUMNS = [
     "Date Found",
     "Company",
@@ -48,10 +108,10 @@ JOBS_COLUMNS = [
     "Key Strengths",
     "Key Gaps",
     "Recommendation",
-    "Reasoning"
+    "Reasoning",
 ]
 
-LINKEDIN_LABEL = "JobSearch"  # Gmail label applied to your LinkedIn job alert emails
+LINKEDIN_LABEL = "JobSearch"
 LINKEDIN_EMAIL_FROM = [
     "jobalerts-noreply@linkedin.com",
     "jobs-listings@linkedin.com",
@@ -74,40 +134,14 @@ PLAYWRIGHT_FALLBACK_WAIT_MS = 2000
 EFINANCIAL_PAGE_SIZE = 200
 
 # eFinancialCareers location parameters — set these to your target city.
-# Slug: city name lowercased with spaces replaced by hyphens (e.g. "new-york", "hong-kong").
-# lat/lng: look up your city's coordinates with any geocoder.
-EFINANCIAL_LOCATION_SLUG = "<your-city>"   # e.g. "new-york"
-EFINANCIAL_LOCATION_LAT  = "0.00000"       # e.g. "40.71280"
-EFINANCIAL_LOCATION_LNG  = "0.00000"       # e.g. "-74.00600"
+# Slug: city name lowercased with hyphens (e.g. "new-york", "hong-kong").
+# lat/lng: coordinates for your city.
+EFINANCIAL_LOCATION_SLUG = "<your-city>"
+EFINANCIAL_LOCATION_LAT  = "0.00000"
+EFINANCIAL_LOCATION_LNG  = "0.00000"
 
-# Keywords submitted as separate searches to eFinancialCareers.
-# Use broad terms — the title filter below then narrows results further.
-# Replace these with the role types you're targeting.
-EFINANCIAL_KEYWORDS = [
-    "Keyword One",
-    "Keyword Two",
-    "Keyword Three",
-]
-
-# Lowercase substrings — a job title must contain at least one to pass (all sources).
-# Use partial forms to catch variations (e.g. "quant" matches "quantitative").
-TITLE_TERMS = frozenset([
-    "term1", "term2", "term3",
-])
-
-# Titles containing any of these are rejected even if they match TITLE_TERMS (all sources).
-TITLE_BLOCKLIST = frozenset([
-    "recruiter",
-    "relocation",
-    "production support",
-    "support engineer",
-    "junior",
-    "intern",
-    "graduate",
-])
-
-# eFC filters.seniority allowlist — customize for your target seniority level(s).
-# Available values: VP_PRINCIPAL, SVP_HEAD_OF, DIRECTOR, MANAGING_DIRECTOR, C_SUITE
+# eFC seniority allowlist. Available values:
+# VP_PRINCIPAL, SVP_HEAD_OF, DIRECTOR, MANAGING_DIRECTOR, C_SUITE
 EFINANCIAL_SENIORITY_LEVELS = [
     "VP_PRINCIPAL",
     "SVP_HEAD_OF",
