@@ -63,7 +63,7 @@ def main():
         elif company["source"] == "ashby":
             jobs = ashby_fetch(company["org"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
         elif company["source"] == "eightfold":
-            jobs = eightfold_fetch(company["domain"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
+            jobs = eightfold_fetch(company["domain"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist, use_playwright=company.get("use_playwright", False))
         elif company["source"] == "workday":
             jobs = workday_fetch(company["tenant"], company["board"], LOCATION_FILTER, seen_urls=seen_urls, wd=company.get("wd", "wd1"), allowlist=allowlist, blocklist=blocklist)
         elif company["source"] == "higher":

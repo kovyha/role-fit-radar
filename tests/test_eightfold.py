@@ -1,5 +1,6 @@
-from unittest.mock import patch, MagicMock
-from sources.eightfold import fetch_jobs, _fetch_content, _strip_html
+import pytest
+from unittest.mock import patch, MagicMock, AsyncMock
+from sources.eightfold import fetch_jobs, _fetch_content, _strip_html, _parse_stubs, _parse_description
 
 
 def _stub(job_id, title, url, location="London, United Kingdom", department="Technology"):
@@ -149,3 +150,205 @@ class TestStripHtml:
 
     def test_none(self):
         assert _strip_html(None) == ""
+
+
+class TestSharedParsers:
+    def test_parse_stubs_extracts_fields(self):
+        data = {"positions": [{"id": 1, "name": "Quant Dev", "canonicalPositionUrl": "https://x.com/1",
+                                "location": "London", "department": "Tech"}], "count": 1}
+        stubs, total = _parse_stubs(data)
+        assert total == 1
+        assert stubs[0] == {"id": 1, "title": "Quant Dev", "url": "https://x.com/1",
+                             "location": "London", "department": "Tech"}
+
+    def test_parse_stubs_empty_positions(self):
+        stubs, total = _parse_stubs({"positions": [], "count": 0})
+        assert stubs == []
+        assert total == 0
+
+    def test_parse_description_strips_html_and_truncates(self):
+        detail = {"job_description": "<p>" + "x" * 8000 + "</p>"}
+        result = _parse_description(detail)
+        assert len(result) == 6000
+        assert "<p>" not in result
+
+    def test_parse_description_missing_key(self):
+        assert _parse_description({}) == ""
+
+    def test_parse_description_none_value(self):
+        assert _parse_description({"job_description": None}) == ""
+
+
+def _make_pw_mock(list_data: dict, detail_data: dict):
+    """Build a minimal async_playwright mock for eightfold Playwright path tests."""
+    list_resp = AsyncMock()
+    list_resp.ok = True
+    list_resp.json = AsyncMock(return_value=list_data)
+
+    detail_resp = AsyncMock()
+    detail_resp.ok = True
+    detail_resp.json = AsyncMock(return_value=detail_data)
+
+    mock_request = AsyncMock()
+    # First call = list, subsequent = detail
+    mock_request.get = AsyncMock(side_effect=[list_resp, detail_resp])
+
+    mock_page = AsyncMock()
+    mock_context = AsyncMock()
+    mock_context.request = mock_request
+    mock_context.new_page = AsyncMock(return_value=mock_page)
+
+    mock_browser = AsyncMock()
+    mock_browser.new_context = AsyncMock(return_value=mock_context)
+
+    mock_p = AsyncMock()
+    mock_p.chromium.launch = AsyncMock(return_value=mock_browser)
+
+    return mock_p, mock_request
+
+
+class TestPlaywrightPath:
+    @pytest.mark.asyncio
+    async def test_returns_job_with_content(self):
+        list_data = {"positions": [{"id": 99, "name": "Algo Trading Engineer",
+                                    "canonicalPositionUrl": "https://citi.eightfold.ai/careers/job/99",
+                                    "location": "London", "department": "Markets"}], "count": 1}
+        detail_data = {"job_description": "<p>Exciting role.</p>"}
+        mock_p, _ = _make_pw_mock(list_data, detail_data)
+
+        with patch("sources.eightfold.async_playwright") as pw:
+            pw.return_value.__aenter__ = AsyncMock(return_value=mock_p)
+            pw.return_value.__aexit__ = AsyncMock(return_value=False)
+            from sources.eightfold import _fetch_jobs_playwright
+            jobs = await _fetch_jobs_playwright("citi.com", "London", set(),
+                                                frozenset(["algo"]), frozenset())
+
+        assert len(jobs) == 1
+        assert jobs[0]["title"] == "Algo Trading Engineer"
+        assert "Exciting role" in jobs[0]["content"]
+        assert "<p>" not in jobs[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_seen_url_skips_detail_fetch(self):
+        list_data = {"positions": [{"id": 99, "name": "Algo Trading Engineer",
+                                    "canonicalPositionUrl": "https://citi.eightfold.ai/careers/job/99",
+                                    "location": "London", "department": "Markets"}], "count": 1}
+        mock_p, mock_request = _make_pw_mock(list_data, {})
+
+        with patch("sources.eightfold.async_playwright") as pw:
+            pw.return_value.__aenter__ = AsyncMock(return_value=mock_p)
+            pw.return_value.__aexit__ = AsyncMock(return_value=False)
+            from sources.eightfold import _fetch_jobs_playwright
+            jobs = await _fetch_jobs_playwright(
+                "citi.com", "London",
+                {"https://citi.eightfold.ai/careers/job/99"},
+                frozenset(["algo"]), frozenset(),
+            )
+
+        assert jobs == []
+        assert mock_request.get.call_count == 1  # list only, no detail call
+
+    @pytest.mark.asyncio
+    async def test_irrelevant_title_filtered(self):
+        list_data = {"positions": [{"id": 99, "name": "Product Manager",
+                                    "canonicalPositionUrl": "https://citi.eightfold.ai/careers/job/99",
+                                    "location": "London", "department": "Tech"}], "count": 1}
+        mock_p, mock_request = _make_pw_mock(list_data, {})
+
+        with patch("sources.eightfold.async_playwright") as pw:
+            pw.return_value.__aenter__ = AsyncMock(return_value=mock_p)
+            pw.return_value.__aexit__ = AsyncMock(return_value=False)
+            from sources.eightfold import _fetch_jobs_playwright
+            jobs = await _fetch_jobs_playwright("citi.com", "London", set(),
+                                                frozenset(["algo"]), frozenset())
+
+        assert jobs == []
+        assert mock_request.get.call_count == 1  # list only, no detail call
+
+    @pytest.mark.asyncio
+    async def test_blocklisted_title_filtered(self):
+        list_data = {"positions": [{"id": 99, "name": "Graduate Algo Analyst",
+                                    "canonicalPositionUrl": "https://citi.eightfold.ai/careers/job/99",
+                                    "location": "London", "department": "Tech"}], "count": 1}
+        mock_p, mock_request = _make_pw_mock(list_data, {})
+
+        with patch("sources.eightfold.async_playwright") as pw:
+            pw.return_value.__aenter__ = AsyncMock(return_value=mock_p)
+            pw.return_value.__aexit__ = AsyncMock(return_value=False)
+            from sources.eightfold import _fetch_jobs_playwright
+            jobs = await _fetch_jobs_playwright("citi.com", "London", set(),
+                                                frozenset(["algo"]), frozenset(["graduate"]))
+
+        assert jobs == []
+
+    @pytest.mark.asyncio
+    async def test_careers_page_error_returns_empty(self):
+        mock_p = AsyncMock()
+        mock_browser = AsyncMock()
+        mock_context = AsyncMock()
+        mock_page = AsyncMock()
+        mock_page.goto.side_effect = Exception("Navigation timeout")
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        mock_browser.new_context = AsyncMock(return_value=mock_context)
+        mock_p.chromium.launch = AsyncMock(return_value=mock_browser)
+
+        with patch("sources.eightfold.async_playwright") as pw:
+            pw.return_value.__aenter__ = AsyncMock(return_value=mock_p)
+            pw.return_value.__aexit__ = AsyncMock(return_value=False)
+            from sources.eightfold import _fetch_jobs_playwright
+            jobs = await _fetch_jobs_playwright("citi.com", "London", set(),
+                                                frozenset(["algo"]), frozenset())
+
+        assert jobs == []
+
+    @pytest.mark.asyncio
+    async def test_api_non_ok_returns_empty(self):
+        failed_resp = AsyncMock()
+        failed_resp.ok = False
+        failed_resp.status = 403
+
+        mock_page = AsyncMock()
+        mock_request = AsyncMock()
+        mock_request.get = AsyncMock(return_value=failed_resp)
+        mock_context = AsyncMock()
+        mock_context.request = mock_request
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        mock_browser = AsyncMock()
+        mock_browser.new_context = AsyncMock(return_value=mock_context)
+        mock_p = AsyncMock()
+        mock_p.chromium.launch = AsyncMock(return_value=mock_browser)
+
+        with patch("sources.eightfold.async_playwright") as pw:
+            pw.return_value.__aenter__ = AsyncMock(return_value=mock_p)
+            pw.return_value.__aexit__ = AsyncMock(return_value=False)
+            from sources.eightfold import _fetch_jobs_playwright
+            jobs = await _fetch_jobs_playwright("citi.com", "London", set(),
+                                                frozenset(["algo"]), frozenset())
+
+        assert jobs == []
+
+    @pytest.mark.asyncio
+    async def test_all_required_fields_present(self):
+        list_data = {"positions": [{"id": 42, "name": "Execution Algo Engineer",
+                                    "canonicalPositionUrl": "https://citi.eightfold.ai/careers/job/42",
+                                    "location": "London", "department": "Electronic Trading"}], "count": 1}
+        detail_data = {"job_description": "Responsible for execution algo."}
+        mock_p, _ = _make_pw_mock(list_data, detail_data)
+
+        with patch("sources.eightfold.async_playwright") as pw:
+            pw.return_value.__aenter__ = AsyncMock(return_value=mock_p)
+            pw.return_value.__aexit__ = AsyncMock(return_value=False)
+            from sources.eightfold import _fetch_jobs_playwright
+            jobs = await _fetch_jobs_playwright("citi.com", "London", set(),
+                                                frozenset(["algo", "execution"]), frozenset())
+
+        assert len(jobs) == 1
+        for field in ("title", "url", "location", "department", "content"):
+            assert field in jobs[0]
+
+    def test_fetch_jobs_sync_wrapper_uses_playwright(self):
+        """fetch_jobs(use_playwright=True) delegates to the Playwright async path."""
+        with patch("sources.eightfold._fetch_jobs_playwright") as mock_async:
+            mock_async.return_value = []
+            fetch_jobs("citi.com", "London", use_playwright=True)
+            mock_async.assert_called_once()

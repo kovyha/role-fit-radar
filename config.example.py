@@ -62,8 +62,13 @@ COMPANIES = [
     # {"name": "Acme Corp", "source": "ashby", "org": "acmecorp",
     #  "local_allowlist": frozenset(), "local_blocklist": TITLE_BLOCKLIST},
 
-    # Eightfold:
+    # Eightfold (standard — no browser session needed):
     # {"name": "Acme Corp", "source": "eightfold", "domain": "acme.com",
+    #  "local_allowlist": TITLE_TERMS, "local_blocklist": TITLE_BLOCKLIST},
+
+    # Eightfold (PCSX-protected board — Playwright establishes browser session):
+    # {"name": "Acme Bank", "source": "eightfold", "domain": "acmebank.com",
+    #  "use_playwright": True,
     #  "local_allowlist": TITLE_TERMS, "local_blocklist": TITLE_BLOCKLIST},
 
     # Workday:

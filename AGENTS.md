@@ -13,9 +13,12 @@ Whenever you modify any file under `sources/` or `gmail.py`, run the relevant te
 | Source changed | Test command |
 |---|---|
 | `sources/greenhouse.py` | `uv run pytest tests/test_greenhouse.py -v` |
+| `sources/ashby.py` | `uv run pytest tests/test_ashby.py -v` |
+| `sources/eightfold.py` | `uv run pytest tests/test_eightfold.py -v` |
+| `sources/workday.py` | `uv run pytest tests/test_workday.py -v` |
+| `sources/higher.py` | `uv run pytest tests/test_higher.py -v` |
 | `sources/gmail_linkedin.py` | `uv run pytest tests/test_gmail_linkedin.py -v` |
 | `sources/efinancialcareers.py` | `uv run pytest tests/test_efinancialcareers.py -v` |
-| `sources/higher.py` | `uv run pytest tests/test_higher.py -v` |
 | `sources/file_mode.py` | `uv run pytest tests/test_file_mode.py -v` |
 | Any / all sources | `uv run pytest tests/ -v` |
 

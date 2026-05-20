@@ -20,7 +20,7 @@ Scan pipeline: `main.py` orchestrates sources → assessor → sheets → email.
 
 `TITLE_TERMS` (allowlist) and `TITLE_BLOCKLIST` (denylist) in `config.py` are the canonical filter lists. Each company entry in `COMPANIES` declares `local_allowlist` and `local_blocklist`; `main.py` passes these to `fetch_jobs(..., allowlist=..., blocklist=...)`. Sources call `passes_local_filter(title, allowlist, blocklist)` from `sources/filters.py`.
 
-- **Broad-fetch sources** (Greenhouse, Ashby, Workday, Eightfold): set `local_allowlist=TITLE_TERMS` to filter titles locally after fetching all company jobs.
+- **Broad-fetch sources** (Greenhouse, Ashby, Workday, Eightfold): set `local_allowlist=TITLE_TERMS` to filter titles locally after fetching all company jobs. For Eightfold boards protected by PCSX auth (e.g. Citi), also set `"use_playwright": True` — this makes the source navigate the careers page first to establish a browser session before making API calls.
 - **Keyword-search sources** (eFC): set `local_allowlist=frozenset()` — the server-side search already uses `search_terms=TITLE_TERMS`, so only the blocklist adds value locally.
 - **AI firms** (Anthropic, DeepMind, OpenAI): set `local_allowlist=frozenset()` to receive all roles — job titles at AI companies don't match the finance-oriented `TITLE_TERMS`.
 
