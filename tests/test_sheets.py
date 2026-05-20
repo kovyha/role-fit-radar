@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock, patch
+import os
 import gspread
 
 from sheets import get_seen_title_company_keys, append_jobs
@@ -113,10 +114,21 @@ class TestGetSeenTitleCompanyKeys:
 
 # ── append_jobs ───────────────────────────────────────────────────────────────
 
+def _make_append_ws(existing_rows=1):
+    """Return a worksheet mock with `existing_rows` rows already present."""
+    ws = MagicMock()
+    ws.get_all_values.return_value = [["header"]] * existing_rows
+    ws.id = 0
+    return ws
+
+
+_SHEET_ENV = patch.dict(os.environ, {"SHEET_ID": "test_sheet_id"})
+
+
 class TestAppendJobsWritesDedupKey:
 
     def test_dedup_key_written_as_last_column(self):
-        ws = MagicMock()
+        ws = _make_append_ws()
         spreadsheet = MagicMock()
         spreadsheet.worksheet.return_value = ws
 
@@ -136,7 +148,7 @@ class TestAppendJobsWritesDedupKey:
             }
         ]
 
-        with patch("sheets._get_sheet", return_value=spreadsheet):
+        with patch("sheets._get_sheet", return_value=spreadsheet), _SHEET_ENV:
             append_jobs(jobs)
 
         written_rows = ws.append_rows.call_args[0][0]
@@ -144,7 +156,7 @@ class TestAppendJobsWritesDedupKey:
         assert written_rows[0][-1] == "senior swe|anthropic"
 
     def test_dedup_key_normalised_to_lowercase(self):
-        ws = MagicMock()
+        ws = _make_append_ws()
         spreadsheet = MagicMock()
         spreadsheet.worksheet.return_value = ws
 
@@ -152,8 +164,28 @@ class TestAppendJobsWritesDedupKey:
                  "location": "London", "department": "", "url": "u",
                  "fit_score": 7, "key_strengths": "", "key_gaps": "", "recommendation": "", "reasoning": ""}]
 
-        with patch("sheets._get_sheet", return_value=spreadsheet):
+        with patch("sheets._get_sheet", return_value=spreadsheet), _SHEET_ENV:
             append_jobs(jobs)
 
         written_rows = ws.append_rows.call_args[0][0]
         assert written_rows[0][-1] == "head of product|openai"
+
+    def test_returns_sheet_url_per_job(self):
+        ws = _make_append_ws(existing_rows=5)  # 5 rows already in sheet → new row at 6
+        spreadsheet = MagicMock()
+        spreadsheet.worksheet.return_value = ws
+
+        jobs = [
+            {"company": "A", "title": "Role 1", "source": "greenhouse", "location": "", "department": "",
+             "url": "u1", "fit_score": 8, "key_strengths": "", "key_gaps": "", "recommendation": "Apply", "reasoning": ""},
+            {"company": "B", "title": "Role 2", "source": "ashby", "location": "", "department": "",
+             "url": "u2", "fit_score": 6, "key_strengths": "", "key_gaps": "", "recommendation": "Maybe", "reasoning": ""},
+        ]
+
+        with patch("sheets._get_sheet", return_value=spreadsheet), _SHEET_ENV:
+            urls = append_jobs(jobs)
+
+        assert len(urls) == 2
+        assert "test_sheet_id" in urls[0]
+        assert "range=A6" in urls[0]
+        assert "range=A7" in urls[1]

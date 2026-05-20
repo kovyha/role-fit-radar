@@ -143,14 +143,17 @@ def get_profile() -> str:
         return ""
 
 
-def append_jobs(jobs: list[dict]) -> None:
+def append_jobs(jobs: list[dict]) -> list[str]:
     """
     Append new job rows to the Jobs tab.
     Each job dict must contain keys from assess_fit() merged with fetch_jobs().
+    Returns a list of direct sheet URLs (one per job) pointing at the appended row.
     """
     spreadsheet = _get_sheet()
     worksheet = spreadsheet.worksheet(JOBS_TAB)
     today = datetime.today().strftime("%Y-%m-%d %H:%M")
+
+    first_new_row = len(worksheet.get_all_values()) + 1  # 1-based, after existing data
 
     rows = []
     for job in jobs:
@@ -175,3 +178,10 @@ def append_jobs(jobs: list[dict]) -> None:
 
     worksheet.append_rows(rows, value_input_option="RAW")
     print(f"[sheets] Appended {len(rows)} row(s)")
+
+    sheet_id = os.environ["SHEET_ID"]
+    gid = worksheet.id
+    return [
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit#gid={gid}&range=A{first_new_row + i}"
+        for i in range(len(jobs))
+    ]

@@ -2,7 +2,7 @@ name: Role Fit Radar
 
 on:
   schedule:
-    - cron: '0 17 * * *'   # Daily at 5pm UTC — adjust to your preferred time
+    - cron: '0 12 * * *'   # Daily at 12:00 UTC (1pm BST / 12pm GMT)
   workflow_dispatch:         # Manual trigger — useful for testing
 
 jobs:

@@ -95,10 +95,15 @@ def _build_html(jobs: list[dict]) -> str:
         colour = {"Apply": "#2e7d32", "Maybe": "#0277bd", "Skip": "#757575"}.get(recommendation, "#333")
         rows = ""
         for job in job_list:
+            sheet_url = job.get("sheet_url", "")
+            sheet_link = (
+                f' &nbsp;<a href="{sheet_url}" style="font-size:11px;color:#888;">sheet ↗</a>'
+                if sheet_url and recommendation == "Apply" else ""
+            )
             rows += f"""
         <tr>
             <td style="padding:8px;border-bottom:1px solid #eee;">
-                <a href="{job.get('url', '')}" style="font-weight:bold;color:#1a1a1a;">{job.get('title', '')}</a><br>
+                <a href="{job.get('url', '')}" style="font-weight:bold;color:#1a1a1a;">{job.get('title', '')}</a>{sheet_link}<br>
                 <small style="color:#666;">{job.get('company', '')} · {job.get('department', '')} · {job.get('location', '')} · {job.get('source', '')}</small>
             </td>
             <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">
@@ -153,7 +158,7 @@ def _build_plain(jobs: list[dict]) -> str:
 
     lines = [f"Role Fit Radar — {len(jobs)} new role(s) found\n"]
     for job in jobs:
-        lines += [
+        entry = [
             f"{'='*60}",
             f"Role:           {job.get('title', '')}",
             f"Company:        {job.get('company', '')}",
@@ -166,6 +171,9 @@ def _build_plain(jobs: list[dict]) -> str:
             f"Strengths:      {job.get('key_strengths', '')}",
             f"Gaps:           {job.get('key_gaps', '')}",
             f"Verdict:        {job.get('reasoning', '')}",
-            ""
         ]
+        if job.get("recommendation") == "Apply" and job.get("sheet_url"):
+            entry.append(f"Sheet row:      {job['sheet_url']}")
+        entry.append("")
+        lines += entry
     return "\n".join(lines)

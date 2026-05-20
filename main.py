@@ -94,7 +94,9 @@ def main():
 
     # Step 6 & 7: Write and notify
     if all_new_jobs:
-        append_jobs(all_new_jobs)
+        sheet_urls = append_jobs(all_new_jobs)
+        for job, sheet_url in zip(all_new_jobs, sheet_urls):
+            job["sheet_url"] = sheet_url
     send_summary(all_new_jobs)
     if all_new_jobs:
         print(f"[main] Done — {len(all_new_jobs)} new role(s) processed and emailed")
