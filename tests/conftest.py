@@ -5,35 +5,38 @@ from unittest.mock import MagicMock, AsyncMock
 
 
 @pytest.fixture
-def greenhouse_api_response():
-    """Sample Greenhouse API response with 2 jobs — one London, one Remote."""
+def greenhouse_stubs_response():
+    """Phase 1: /jobs list with 2 stubs — one London, one San Francisco. No content field."""
     return {
         "jobs": [
             {
                 "id": 1001,
-                "title": "Senior Software Engineer",
+                "title": "Senior Quantitative Developer",
                 "absolute_url": "https://www.anthropic.com/careers/1001",
-                "location": {
-                    "name": "London, UK"
-                },
-                "departments": [
-                    {"name": "Engineering"}
-                ],
-                "content": "<p>We are looking for a <strong>senior engineer</strong>.</p><p>Requirements: 5+ years experience.</p>"
+                "location": {"name": "London, UK"},
+                "departments": [{"name": "Engineering"}],
             },
             {
                 "id": 1002,
                 "title": "Product Manager",
                 "absolute_url": "https://www.anthropic.com/careers/1002",
-                "location": {
-                    "name": "San Francisco, USA"
-                },
-                "departments": [
-                    {"name": "Product"}
-                ],
-                "content": "<p>Seeking an experienced <strong>product manager</strong>.</p>"
-            }
+                "location": {"name": "San Francisco, USA"},
+                "departments": [{"name": "Product"}],
+            },
         ]
+    }
+
+
+@pytest.fixture
+def greenhouse_detail_1001():
+    """Phase 2: /jobs/1001?content=true detail response."""
+    return {
+        "id": 1001,
+        "title": "Senior Quantitative Developer",
+        "absolute_url": "https://www.anthropic.com/careers/1001",
+        "location": {"name": "London, UK"},
+        "departments": [{"name": "Engineering"}],
+        "content": "<p>We are looking for a <strong>senior quant developer</strong>.</p><p>Requirements: 5+ years experience.</p>",
     }
 
 
@@ -44,44 +47,48 @@ def greenhouse_api_empty():
 
 
 @pytest.fixture
-def greenhouse_api_no_departments():
-    """Greenhouse API response with a job that has no departments."""
+def greenhouse_stubs_no_departments():
+    """Phase 1 stub for a job with no departments."""
     return {
         "jobs": [
             {
                 "id": 2001,
-                "title": "Intern",
+                "title": "Electronic Trading Developer",
                 "absolute_url": "https://www.anthropic.com/careers/2001",
-                "location": {
-                    "name": "London, UK"
-                },
+                "location": {"name": "London, UK"},
                 "departments": [],
-                "content": "Internship opportunity."
             }
         ]
     }
 
 
 @pytest.fixture
-def greenhouse_api_long_content():
-    """Greenhouse API response with content exceeding 6000 chars."""
-    long_text = "Lorem ipsum dolor sit amet. " * 300  # ~8100 chars
+def greenhouse_detail_2001():
+    """Phase 2 detail for job 2001."""
+    return {"id": 2001, "content": "Internship opportunity."}
+
+
+@pytest.fixture
+def greenhouse_stubs_long_content():
+    """Phase 1 stub for a job whose description exceeds 6000 chars."""
     return {
         "jobs": [
             {
                 "id": 3001,
-                "title": "Role with Long Description",
+                "title": "Algo Trading Engineer",
                 "absolute_url": "https://example.com/role",
-                "location": {
-                    "name": "London, UK"
-                },
-                "departments": [
-                    {"name": "Engineering"}
-                ],
-                "content": f"<p>{long_text}</p>"
+                "location": {"name": "London, UK"},
+                "departments": [{"name": "Engineering"}],
             }
         ]
     }
+
+
+@pytest.fixture
+def greenhouse_detail_3001():
+    """Phase 2 detail for job 3001 with content exceeding 6000 chars."""
+    long_text = "Lorem ipsum dolor sit amet. " * 300  # ~8100 chars
+    return {"id": 3001, "content": f"<p>{long_text}</p>"}
 
 
 @pytest.fixture

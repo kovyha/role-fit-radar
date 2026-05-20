@@ -89,14 +89,14 @@ EFINANCIAL_KEYWORDS = [
     "Keyword Three",
 ]
 
-# Lowercase substrings — a job title must contain at least one to pass.
+# Lowercase substrings — a job title must contain at least one to pass (all sources).
 # Use partial forms to catch variations (e.g. "quant" matches "quantitative").
-EFINANCIAL_TITLE_TERMS = frozenset([
+TITLE_TERMS = frozenset([
     "term1", "term2", "term3",
 ])
 
-# Titles containing any of these are rejected even if they match EFINANCIAL_TITLE_TERMS.
-EFINANCIAL_TITLE_BLOCKLIST = frozenset([
+# Titles containing any of these are rejected even if they match TITLE_TERMS (all sources).
+TITLE_BLOCKLIST = frozenset([
     "recruiter",
     "relocation",
     "production support",

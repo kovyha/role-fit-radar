@@ -7,12 +7,12 @@ from urllib.parse import quote
 
 from playwright.async_api import async_playwright
 from config import (
-    EFINANCIAL_KEYWORDS, EFINANCIAL_TITLE_TERMS, EFINANCIAL_TITLE_BLOCKLIST,
-    EFINANCIAL_SENIORITY_LEVELS, EFINANCIAL_PAGE_SIZE,
+    EFINANCIAL_KEYWORDS, EFINANCIAL_SENIORITY_LEVELS, EFINANCIAL_PAGE_SIZE,
     EFINANCIAL_LOCATION_SLUG, EFINANCIAL_LOCATION_LAT, EFINANCIAL_LOCATION_LNG,
     JOB_CONTENT_MAX_CHARS,
     PLAYWRIGHT_PAGE_TIMEOUT_MS, PLAYWRIGHT_SELECTOR_TIMEOUT_MS, PLAYWRIGHT_FALLBACK_WAIT_MS,
 )
+from sources.filters import is_relevant_title
 
 
 EFINANCIAL_BASE = "https://www.efinancialcareers.co.uk/jobs"
@@ -33,13 +33,6 @@ def _build_search_url(keyword: str, location_filter: str, page: int = 1) -> str:
         f"&page={page}{seniority_params}"
     )
 
-
-def _is_relevant_title(title: str) -> bool:
-    t = title.lower()
-    return (
-        any(term in t for term in EFINANCIAL_TITLE_TERMS)
-        and not any(term in t for term in EFINANCIAL_TITLE_BLOCKLIST)
-    )
 
 
 def fetch_jobs(location_filter: str, seen_urls: set = None) -> list[dict]:
@@ -108,7 +101,7 @@ async def _fetch_jobs_async(location_filter: str, sheet_seen_urls: set) -> list[
                                 if (job_url
                                         and job_url not in seen_in_run
                                         and job_url not in sheet_seen_urls
-                                        and _is_relevant_title(title)):
+                                        and is_relevant_title(title)):
                                     seen_in_run.add(job_url)
                                     stubs.append({
                                         "title":      title or "Unknown Role",
