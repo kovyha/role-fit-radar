@@ -75,6 +75,11 @@ COMPANIES = [
     # {"name": "Acme Corp", "source": "workday", "tenant": "acme", "board": "Acme_Professional",
     #  "local_allowlist": TITLE_TERMS, "local_blocklist": TITLE_BLOCKLIST},
 
+    # Oracle HCM Cloud (requires Playwright session for location filtering):
+    # {"name": "JPMorgan", "source": "oracle_hcm",
+    #  "host": "jpmc.fa.oraclecloud.com", "site": "CX_1001",
+    #  "local_allowlist": TITLE_TERMS, "local_blocklist": TITLE_BLOCKLIST},
+
     # Goldman Sachs (higher.gs.com — custom GraphQL API, no tenant/board params needed):
     # {"name": "Goldman Sachs", "source": "higher",
     #  "local_allowlist": TITLE_TERMS, "local_blocklist": TITLE_BLOCKLIST},

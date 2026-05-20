@@ -144,6 +144,9 @@ role-fit-radar/
 │   ├── efinancialcareers.py     # eFinancialCareers scraper
 │   ├── ashby.py                 # Ashby ATS fetcher
 │   ├── eightfold.py             # Eightfold AI job board fetcher
+│   ├── workday.py               # Workday CXS API fetcher
+│   ├── higher.py                # Goldman Sachs (higher.gs.com) GraphQL fetcher
+│   ├── oracle_hcm.py            # Oracle HCM Cloud career site fetcher
 │   ├── filters.py               # Shared title-relevance logic
 │   ├── file_mode.py             # File/URL loader for --file mode
 │   └── scraper.py               # Playwright scraper stub (future)
@@ -155,6 +158,9 @@ role-fit-radar/
 │   ├── test_efinancialcareers.py
 │   ├── test_ashby.py
 │   ├── test_eightfold.py
+│   ├── test_workday.py
+│   ├── test_higher.py
+│   ├── test_oracle_hcm.py
 │   ├── test_main_dedup.py
 │   ├── test_sheets.py
 │   └── test_file_mode.py

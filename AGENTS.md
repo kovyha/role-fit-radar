@@ -17,6 +17,7 @@ Whenever you modify any file under `sources/` or `gmail.py`, run the relevant te
 | `sources/eightfold.py` | `uv run pytest tests/test_eightfold.py -v` |
 | `sources/workday.py` | `uv run pytest tests/test_workday.py -v` |
 | `sources/higher.py` | `uv run pytest tests/test_higher.py -v` |
+| `sources/oracle_hcm.py` | `uv run pytest tests/test_oracle_hcm.py -v` |
 | `sources/gmail_linkedin.py` | `uv run pytest tests/test_gmail_linkedin.py -v` |
 | `sources/efinancialcareers.py` | `uv run pytest tests/test_efinancialcareers.py -v` |
 | `sources/file_mode.py` | `uv run pytest tests/test_file_mode.py -v` |

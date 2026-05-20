@@ -26,6 +26,7 @@ from sources.ashby import fetch_jobs as ashby_fetch
 from sources.eightfold import fetch_jobs as eightfold_fetch
 from sources.workday import fetch_jobs as workday_fetch
 from sources.higher import fetch_jobs as higher_fetch
+from sources.oracle_hcm import fetch_jobs as oracle_hcm_fetch
 from sheets import get_seen_urls, get_seen_title_company_keys, get_profile, append_jobs
 from assessor import assess_fit
 from gmail import send_summary
@@ -68,6 +69,8 @@ def main():
             jobs = workday_fetch(company["tenant"], company["board"], LOCATION_FILTER, seen_urls=seen_urls, wd=company.get("wd", "wd1"), allowlist=allowlist, blocklist=blocklist)
         elif company["source"] == "higher":
             jobs = higher_fetch(LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
+        elif company["source"] == "oracle_hcm":
+            jobs = oracle_hcm_fetch(company["host"], company["site"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
         else:
             print(f"[main] Unknown source '{company['source']}' for {company['name']} — skipping")
             continue
@@ -77,7 +80,7 @@ def main():
 
         # Step 5: Assess each new role
         for job in new_jobs:
-            if company["source"] in ("greenhouse", "ashby", "eightfold", "workday", "higher"):
+            if company["source"] in ("greenhouse", "ashby", "eightfold", "workday", "higher", "oracle_hcm"):
                 job["company"] = company["name"]
             title_key = f"{job.get('title', '').lower()}|{job.get('company', '').lower()}"
             if title_key in seen_title_keys:
