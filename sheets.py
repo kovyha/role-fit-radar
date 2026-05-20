@@ -54,6 +54,63 @@ def get_seen_urls() -> set[str]:
         return set()
 
 
+def get_seen_title_company_keys() -> dict[str, str]:
+    """
+    Return a mapping of normalised 'title|company' key -> original URL for rows
+    already recorded in the Jobs tab.  The URL enables audit trails on dup rows.
+    Reads from a dedicated 'Dedup Key' column for a single API call per run.
+    Self-healing: adds the column header and back-populates existing rows on first call.
+    """
+    spreadsheet = _get_sheet()
+
+    try:
+        worksheet = spreadsheet.worksheet(JOBS_TAB)
+        all_rows = worksheet.get_all_values()
+        if not all_rows:
+            return {}
+
+        header = all_rows[0]
+        try:
+            title_col   = header.index("Title")    # 0-based
+            company_col = header.index("Company")  # 0-based
+            url_col     = header.index("URL")       # 0-based
+        except ValueError:
+            return {}
+
+        if "Dedup Key" in header:
+            dedup_col  = header.index("Dedup Key")
+            col_exists = True
+        else:
+            dedup_col  = len(header)  # new column at end
+            col_exists = False
+            worksheet.update_cell(1, dedup_col + 1, "Dedup Key")  # 1-based
+
+        seen           = {}   # key -> url
+        cells_to_write = []
+
+        for i, row in enumerate(all_rows[1:], start=2):  # row 2 = first data row (1-based)
+            url      = row[url_col]     if url_col     < len(row) else ""
+            existing = row[dedup_col]   if (col_exists and dedup_col < len(row)) else ""
+            if existing:
+                seen[existing] = url
+            else:
+                title   = row[title_col]   if title_col   < len(row) else ""
+                company = row[company_col] if company_col < len(row) else ""
+                if title and company:
+                    computed = f"{title.lower()}|{company.lower()}"
+                    seen[computed] = url
+                    cells_to_write.append(gspread.Cell(i, dedup_col + 1, computed))
+
+        if cells_to_write:
+            worksheet.update_cells(cells_to_write)
+            print(f"[sheets] Back-populated Dedup Key for {len(cells_to_write)} existing row(s)")
+
+        return seen
+
+    except gspread.exceptions.WorksheetNotFound:
+        return {}
+
+
 def get_profile() -> str:
     """
     Read the user profile from the Profile tab.
@@ -97,11 +154,13 @@ def append_jobs(jobs: list[dict]) -> None:
 
     rows = []
     for job in jobs:
+        title   = job.get("title", "")
+        company = job.get("company", "")
         row = [
             today,
-            job.get("company", ""),
+            company,
             job.get("source", ""),
-            job.get("title", ""),
+            title,
             job.get("location", ""),
             job.get("department", ""),
             job.get("url", ""),
@@ -109,7 +168,8 @@ def append_jobs(jobs: list[dict]) -> None:
             job.get("key_strengths", ""),
             job.get("key_gaps", ""),
             job.get("recommendation", ""),
-            job.get("reasoning", "")
+            job.get("reasoning", ""),
+            f"{title.lower()}|{company.lower()}",
         ]
         rows.append(row)
 

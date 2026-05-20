@@ -22,7 +22,9 @@ from sources.greenhouse import fetch_jobs as greenhouse_fetch
 from sources.scraper import fetch_jobs as scraper_fetch
 from sources.gmail_linkedin import fetch_jobs as linkedin_fetch
 from sources.efinancialcareers import fetch_jobs as efinancial_fetch
-from sheets import get_seen_urls, get_profile, append_jobs
+from sources.ashby import fetch_jobs as ashby_fetch
+from sources.eightfold import fetch_jobs as eightfold_fetch
+from sheets import get_seen_urls, get_seen_title_company_keys, get_profile, append_jobs
 from assessor import assess_fit
 from gmail import send_summary
 
@@ -32,6 +34,7 @@ def main():
 
     # Step 1 & 2: Load state from Google Sheets
     seen_urls = get_seen_urls()
+    seen_title_keys = get_seen_title_company_keys()  # cross-platform dedup; grows within the run too
     profile = get_profile()
     print(f"[main] {len(seen_urls)} previously seen role(s) loaded")
 
@@ -45,13 +48,17 @@ def main():
         print(f"[main] Scanning {company['name']} ({company['source']})...")
 
         if company["source"] == "greenhouse":
-            jobs = greenhouse_fetch(company["board"], LOCATION_FILTER)
+            jobs = greenhouse_fetch(company["board"], LOCATION_FILTER, seen_urls=seen_urls)
         elif company["source"] == "scraper":
             jobs = scraper_fetch(company["url"], LOCATION_FILTER)
         elif company["source"] == "linkedin_email":
             jobs = linkedin_fetch(seen_urls=seen_urls)
         elif company["source"] == "efinancialcareers":
             jobs = efinancial_fetch(LOCATION_FILTER, seen_urls=seen_urls)
+        elif company["source"] == "ashby":
+            jobs = ashby_fetch(company["org"], LOCATION_FILTER, seen_urls=seen_urls)
+        elif company["source"] == "eightfold":
+            jobs = eightfold_fetch(company["domain"], LOCATION_FILTER, seen_urls=seen_urls)
         else:
             print(f"[main] Unknown source '{company['source']}' for {company['name']} — skipping")
             continue
@@ -61,11 +68,21 @@ def main():
 
         # Step 5: Assess each new role
         for job in new_jobs:
+            if company["source"] in ("greenhouse", "ashby", "eightfold"):
+                job["company"] = company["name"]
+            title_key = f"{job.get('title', '').lower()}|{job.get('company', '').lower()}"
+            if title_key in seen_title_keys:
+                original_url = seen_title_keys[title_key]
+                print(f"[main] Duplicate (cross-platform): {job['title']} @ {job.get('company', '')}")
+                job.update({"fit_score": "", "key_strengths": "", "key_gaps": "",
+                            "recommendation": "Dup", "reasoning": f"Dup of {original_url}"})
+                job["source"] = company["source"]
+                all_new_jobs.append(job)
+                continue
+            seen_title_keys[title_key] = job.get("url", "")
             print(f"[main] Assessing: {job['title']}")
             assessment = assess_fit(job, profile)
             job.update(assessment)
-            if company["source"] == "greenhouse":
-                job["company"] = company["name"]
             job["source"] = company["source"]
             all_new_jobs.append(job)
 
