@@ -126,6 +126,9 @@ role-fit-radar/
 │   ├── greenhouse.py            # Greenhouse API fetcher
 │   ├── gmail_linkedin.py        # LinkedIn jobs via Gmail digest emails
 │   ├── efinancialcareers.py     # eFinancialCareers scraper
+│   ├── ashby.py                 # Ashby ATS fetcher
+│   ├── eightfold.py             # Eightfold AI job board fetcher
+│   ├── filters.py               # Shared title-relevance logic
 │   ├── file_mode.py             # File/URL loader for --file mode
 │   └── scraper.py               # Playwright scraper stub (future)
 ├── tests/
@@ -134,6 +137,10 @@ role-fit-radar/
 │   ├── test_greenhouse.py
 │   ├── test_gmail_linkedin.py
 │   ├── test_efinancialcareers.py
+│   ├── test_ashby.py
+│   ├── test_eightfold.py
+│   ├── test_main_dedup.py
+│   ├── test_sheets.py
 │   └── test_file_mode.py
 ├── requirements.txt
 └── .github/workflows/scan.yml   # GitHub Actions cron (daily 5pm UTC)

@@ -37,6 +37,10 @@ Coverage gate is 90% and is configurable via `fail_under` in `pyproject.toml`. R
 
 ### Before any commit or push
 
-1. **Lint + tests + coverage**: Run `pytest --cov` with lint (e.g. `ruff check .` or `flake8`). All tests must pass and coverage must meet the `fail_under` threshold in `pyproject.toml` (currently 90%).
-2. **Documentation**: Verify that CLAUDE.md, docstrings, and any other relevant docs reflect the changes being committed. Update them if they are stale.
-3. **No personal data**: Confirm the diff contains no secrets, credentials, personal identifiers, or private config values. `config.py` is intentionally untracked — do not stage it.
+Spawn the `pre-commit` subagent immediately after staging files — no intermediate commands, no summary to the user first. Only proceed to ask the user for commit approval if it reports **Overall: PASS**.
+
+```
+Agent(subagent_type="pre-commit", prompt="Run the pre-commit checklist.")
+```
+
+The agent runs: lint → auto-fix → full test suite → secrets scan → coverage check → documentation currency check.

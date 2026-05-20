@@ -35,6 +35,8 @@ Tests use `unittest.mock` to avoid real network calls — safe to run locally at
 | `sources/greenhouse.py` | `tests/test_greenhouse.py` | Greenhouse API fetch, location filter, HTML stripping, content truncation |
 | `sources/gmail_linkedin.py` | `tests/test_gmail_linkedin.py` | IMAP login, email parsing, LinkedIn URL extraction |
 | `sources/efinancialcareers.py` | `tests/test_efinancialcareers.py` | Playwright browser automation, keyword/location URL encoding, user-agent headers |
+| `sources/ashby.py` | `tests/test_ashby.py` | Ashby ATS API fetch, title filtering, seen-URL skip, required fields |
+| `sources/eightfold.py` | `tests/test_eightfold.py` | Eightfold pagination, title filtering, HTML stripping, content truncation |
 | `sources/file_mode.py` | `tests/test_file_mode.py` | Google Doc URL export, URL dispatch by content-type, local file loading, directory scan, error skipping |
 
 ### Adding a new source
