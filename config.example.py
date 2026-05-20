@@ -70,6 +70,10 @@ COMPANIES = [
     # {"name": "Acme Corp", "source": "workday", "tenant": "acme", "board": "Acme_Professional",
     #  "local_allowlist": TITLE_TERMS, "local_blocklist": TITLE_BLOCKLIST},
 
+    # Goldman Sachs (higher.gs.com — custom GraphQL API, no tenant/board params needed):
+    # {"name": "Goldman Sachs", "source": "higher",
+    #  "local_allowlist": TITLE_TERMS, "local_blocklist": TITLE_BLOCKLIST},
+
     # LinkedIn job alert emails (requires Gmail IMAP + LinkedIn job alert setup):
     {
         "name": "LinkedIn",
