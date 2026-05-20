@@ -1,5 +1,4 @@
-import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 import gspread
 
 from sheets import get_seen_title_company_keys, append_jobs

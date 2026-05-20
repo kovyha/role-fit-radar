@@ -1,5 +1,5 @@
-from unittest.mock import patch, MagicMock, call
-from sources.eightfold import fetch_jobs, _fetch_stubs, _fetch_content, _strip_html
+from unittest.mock import patch, MagicMock
+from sources.eightfold import fetch_jobs, _fetch_content, _strip_html
 
 
 def _stub(job_id, title, url, location="London, United Kingdom", department="Technology"):
