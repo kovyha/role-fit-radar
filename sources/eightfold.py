@@ -145,7 +145,7 @@ async def _fetch_jobs_playwright(
         page = await context.new_page()
 
         try:
-            await page.goto(careers_url, wait_until="networkidle", timeout=PLAYWRIGHT_PAGE_TIMEOUT_MS)
+            await page.goto(careers_url, wait_until="load", timeout=PLAYWRIGHT_PAGE_TIMEOUT_MS)
         except Exception as e:
             print(f"[eightfold] Playwright: failed to load {careers_url}: {e}")
             await browser.close()
@@ -160,7 +160,7 @@ async def _fetch_jobs_playwright(
                 resp = await context.request.get(api_base, params={
                     "domain": domain, "location": location_filter,
                     "limit": limit, "start": start,
-                })
+                }, timeout=PLAYWRIGHT_PAGE_TIMEOUT_MS)
                 if not resp.ok:
                     print(f"[eightfold] Playwright: API returned {resp.status} for {domain}")
                     break
@@ -182,7 +182,7 @@ async def _fetch_jobs_playwright(
                 continue
             job_id = stub.pop("id")
             try:
-                resp = await context.request.get(f"{api_base}/{job_id}", params={"domain": domain})
+                resp = await context.request.get(f"{api_base}/{job_id}", params={"domain": domain}, timeout=PLAYWRIGHT_PAGE_TIMEOUT_MS)
                 stub["content"] = _parse_description(await resp.json()) if resp.ok else ""
             except Exception as e:
                 print(f"[eightfold] Playwright: content fetch failed for job {job_id}: {e}")

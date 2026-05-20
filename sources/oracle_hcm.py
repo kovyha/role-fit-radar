@@ -63,7 +63,7 @@ async def _fetch_jobs_async(
         page    = await context.new_page()
 
         try:
-            await page.goto(careers_url, wait_until="networkidle", timeout=PLAYWRIGHT_PAGE_TIMEOUT_MS)
+            await page.goto(careers_url, wait_until="load", timeout=PLAYWRIGHT_PAGE_TIMEOUT_MS)
         except Exception as e:
             print(f"[oracle_hcm] Failed to load {careers_url}: {e}")
             await browser.close()
@@ -92,7 +92,7 @@ async def _fetch_jobs_async(
                     "onlyData": "true",
                     "expand":   "requisitionList.workLocation",
                     "finder":   finder,
-                })
+                }, timeout=PLAYWRIGHT_PAGE_TIMEOUT_MS)
                 if not resp.ok:
                     print(f"[oracle_hcm] List API returned {resp.status}")
                     break
@@ -134,7 +134,7 @@ async def _fetch_jobs_async(
                     "expand":    "all",
                     "onlyData":  "true",
                     "finder":    f'ById;Id="{req_id}",siteNumber={site}',
-                })
+                }, timeout=PLAYWRIGHT_PAGE_TIMEOUT_MS)
                 stub["content"] = _extract_content(await resp.json()) if resp.ok else ""
             except Exception as e:
                 print(f"[oracle_hcm] Content fetch failed for {req_id}: {e}")
@@ -154,7 +154,7 @@ async def _discover_location_id(context, list_url: str, site: str, location_filt
     """
     finder = f"findReqs;siteNumber={site},facetsList=LOCATIONS,limit=1"
     try:
-        resp = await context.request.get(list_url, params={"onlyData": "true", "finder": finder})
+        resp = await context.request.get(list_url, params={"onlyData": "true", "finder": finder}, timeout=PLAYWRIGHT_PAGE_TIMEOUT_MS)
         if not resp.ok:
             return None
         data = await resp.json()
