@@ -24,6 +24,10 @@ Scan pipeline: `main.py` orchestrates sources → assessor → sheets → email.
 - **Keyword-search sources** (eFC): set `local_allowlist=frozenset()` — the server-side search already uses `search_terms=TITLE_TERMS`, so only the blocklist adds value locally.
 - **AI firms** (Anthropic, DeepMind, OpenAI): set `local_allowlist=frozenset()` to receive all roles — job titles at AI companies don't match the finance-oriented `TITLE_TERMS`.
 
+### Blocklist term syntax
+
+Plain terms (e.g. `"junior"`) match as substrings anywhere in the title. Glob-wrapped terms (e.g. `"*ai*"`) use **embedded-only** matching: the term is blocked only when it appears *inside* a larger word (e.g. `"retail"`, `"training"`), not when it stands alone as a word (e.g. `"AI Engineer"`, `"Head of AI"`). Use glob-wrapped terms when a short abbreviation like `ai` or `ml` would cause false positives against unrelated titles.
+
 Update `TITLE_TERMS` and `TITLE_BLOCKLIST` in `config.py` when the target role profile changes.
 
 ## Testing
