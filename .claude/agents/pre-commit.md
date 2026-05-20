@@ -43,6 +43,8 @@ The coverage threshold and omit list are configured in `pyproject.toml` under `[
 ### Step 6 — Documentation currency check
 Run `git diff --cached` and reason about what changed. Ask: does any user-facing or operational document need to reflect this change? Consider the full range of docs in the repo — README, inline comments, config comments, test tables in AGENTS.md, etc. Flag any that are now stale or missing coverage of the change. If the change is purely internal (refactor, test fix, config tweak) and no doc would mislead a reader, that is OK.
 
+If step 6 results in doc changes that are then staged, **only re-run step 4 (secrets scan) on those staged doc changes** — do not re-run steps 1, 2, 3, or 5 against them.
+
 ## Output format
 
 Return a single structured report. Do not add prose outside this structure:
