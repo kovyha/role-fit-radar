@@ -5,16 +5,39 @@ from sources.workday import fetch_jobs, _discover_location_ids, _fetch_content, 
 _LONDON_ID_A = "131d7f8fcf9f01c8d6145e57f75064cd"
 _LONDON_ID_B = "131d7f8fcf9f013542e48f95f7503fcf"
 
+# Real Workday nested facet format (BlackRock / Barclays pattern):
+# locationMainGroup → values[].facetParameter="locations" → values[].{id, descriptor}
 _FACETS_RESPONSE = {
     "total": 1,
     "jobPostings": [{"title": "x", "externalPath": "/job/x", "locationsText": "London"}],
     "facets": [
         {
-            "facetParameter": "locations",
+            "facetParameter": "locationMainGroup",
             "values": [
-                {"facetParameter": _LONDON_ID_A, "value": "London, Greater London", "count": 39},
-                {"facetParameter": _LONDON_ID_B, "value": "LO9-London - Drapers Gardens", "count": 5},
-                {"facetParameter": "paris-id", "value": "Paris, France", "count": 12},
+                {
+                    "facetParameter": "locations",
+                    "descriptor": "Locations",
+                    "values": [
+                        {"descriptor": "London, Greater London", "id": _LONDON_ID_A, "count": 39},
+                        {"descriptor": "LO9-London - Drapers Gardens", "id": _LONDON_ID_B, "count": 5},
+                        {"descriptor": "Paris, France", "id": "paris-id", "count": 12},
+                    ],
+                }
+            ],
+        }
+    ],
+}
+
+# Flat facet format (Deutsche Bank pattern): Location → values[].{id, descriptor}
+_FLAT_FACETS_RESPONSE = {
+    "total": 1,
+    "jobPostings": [],
+    "facets": [
+        {
+            "facetParameter": "Location",
+            "values": [
+                {"descriptor": "London, United Kingdom", "id": "london-uk-id", "count": 20},
+                {"descriptor": "Frankfurt, Germany", "id": "frankfurt-id", "count": 15},
             ],
         }
     ],
@@ -59,6 +82,20 @@ class TestFetchJobs:
         assert "Build trading systems" in jobs[0]["content"]
         assert "<p>" not in jobs[0]["content"]
 
+    def test_wd3_url(self):
+        posting = _posting("Algo Trading Developer", "/job/London/ATD_R001")
+        discovery = _post_mock(_FACETS_RESPONSE)
+        stubs = _stubs_page([posting], total=1)
+        detail = _get_mock("Algo role.")
+
+        with patch("requests.post", side_effect=[discovery, stubs]), \
+             patch("requests.get", return_value=detail), \
+             patch("sources.workday.time.sleep"):
+            jobs = fetch_jobs("barclays", "External_Career_Site_Barclays", "London", wd="wd3")
+
+        assert len(jobs) == 1
+        assert "barclays.wd3.myworkdayjobs.com" in jobs[0]["url"]
+
     def test_irrelevant_title_filtered_out(self):
         posting = _posting("Product Manager", "/job/London/PM_R002")
         discovery = _post_mock(_FACETS_RESPONSE)
@@ -87,11 +124,24 @@ class TestFetchJobs:
         mock_get.assert_not_called()
 
     def test_no_matching_location_returns_empty(self):
-        facets_no_match = {**_FACETS_RESPONSE, "facets": [
-            {"facetParameter": "locations", "values": [
-                {"facetParameter": "paris-id", "value": "Paris, France", "count": 12},
-            ]}
-        ]}
+        facets_no_match = {
+            "total": 0,
+            "jobPostings": [],
+            "facets": [
+                {
+                    "facetParameter": "locationMainGroup",
+                    "values": [
+                        {
+                            "facetParameter": "locations",
+                            "descriptor": "Locations",
+                            "values": [
+                                {"descriptor": "Paris, France", "id": "paris-id", "count": 12},
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
         discovery = _post_mock(facets_no_match)
 
         with patch("requests.post", return_value=discovery):
@@ -165,31 +215,42 @@ class TestFetchJobs:
 
 
 class TestDiscoverLocationIds:
-    def test_returns_matching_ids(self):
+    def test_nested_pattern_returns_matching_ids(self):
         with patch("requests.post", return_value=_post_mock(_FACETS_RESPONSE)):
-            ids = _discover_location_ids("https://example.com/jobs", "London")
+            facet_key, ids = _discover_location_ids("https://example.com/jobs", "London")
 
+        assert facet_key == "locations"
         assert _LONDON_ID_A in ids
         assert _LONDON_ID_B in ids
         assert "paris-id" not in ids
 
+    def test_flat_pattern_returns_matching_ids(self):
+        with patch("requests.post", return_value=_post_mock(_FLAT_FACETS_RESPONSE)):
+            facet_key, ids = _discover_location_ids("https://example.com/jobs", "London")
+
+        assert facet_key == "Location"
+        assert "london-uk-id" in ids
+        assert "frankfurt-id" not in ids
+
     def test_case_insensitive(self):
         with patch("requests.post", return_value=_post_mock(_FACETS_RESPONSE)):
-            ids = _discover_location_ids("https://example.com/jobs", "london")
+            facet_key, ids = _discover_location_ids("https://example.com/jobs", "london")
 
         assert len(ids) == 2
 
     def test_no_match_returns_empty(self):
         with patch("requests.post", return_value=_post_mock(_FACETS_RESPONSE)):
-            ids = _discover_location_ids("https://example.com/jobs", "Tokyo")
+            facet_key, ids = _discover_location_ids("https://example.com/jobs", "Tokyo")
 
+        assert facet_key == ""
         assert ids == []
 
     def test_http_error_returns_empty(self):
         import requests
         with patch("requests.post", side_effect=requests.RequestException("timeout")):
-            ids = _discover_location_ids("https://example.com/jobs", "London")
+            facet_key, ids = _discover_location_ids("https://example.com/jobs", "London")
 
+        assert facet_key == ""
         assert ids == []
 
 

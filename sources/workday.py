@@ -27,7 +27,7 @@ _HEADERS = {
 _PAGE_SIZE = 20  # Workday hard-caps at 20; any higher returns null total + empty results
 
 
-def fetch_jobs(tenant: str, board: str, location_filter: str, seen_urls: set | None = None, *, allowlist: frozenset = TITLE_TERMS, blocklist: frozenset = TITLE_BLOCKLIST) -> list[dict]:
+def fetch_jobs(tenant: str, board: str, location_filter: str, seen_urls: set | None = None, *, wd: str = "wd1", allowlist: frozenset = TITLE_TERMS, blocklist: frozenset = TITLE_BLOCKLIST) -> list[dict]:
     """
     Fetch new jobs from a Workday board, filtered by location.
 
@@ -39,6 +39,7 @@ def fetch_jobs(tenant: str, board: str, location_filter: str, seen_urls: set | N
         board:           Workday board name e.g. "BlackRock_Professional"
         location_filter: String to match against location facet descriptors e.g. "London"
         seen_urls:       URLs already recorded; descriptions skipped for these
+        wd:              Workday subdomain e.g. "wd1" or "wd3"
 
     Returns:
         List of job dicts with keys: title, url, location, department, content
@@ -46,17 +47,17 @@ def fetch_jobs(tenant: str, board: str, location_filter: str, seen_urls: set | N
     if seen_urls is None:
         seen_urls = set()
 
-    api_base = f"https://{tenant}.wd1.myworkdayjobs.com/wday/cxs/{tenant}/{board}"
+    api_base = f"https://{tenant}.{wd}.myworkdayjobs.com/wday/cxs/{tenant}/{board}"
     jobs_url = f"{api_base}/jobs"
-    canonical_base = f"https://{tenant}.wd1.myworkdayjobs.com/{board}"
+    canonical_base = f"https://{tenant}.{wd}.myworkdayjobs.com/{board}"
 
-    # Phase 1: discover location IDs then collect stubs
-    location_ids = _discover_location_ids(jobs_url, location_filter)
+    # Phase 1: discover location facet key + IDs then collect stubs
+    location_facet_key, location_ids = _discover_location_ids(jobs_url, location_filter)
     if not location_ids:
         print(f"[workday] No location facets matched '{location_filter}' for {tenant}/{board}")
         return []
 
-    stubs = _fetch_stubs(jobs_url, location_ids, canonical_base)
+    stubs = _fetch_stubs(jobs_url, location_facet_key, location_ids, canonical_base)
 
     # Phase 2: fetch descriptions for new, relevant jobs
     results = []
@@ -73,8 +74,13 @@ def fetch_jobs(tenant: str, board: str, location_filter: str, seen_urls: set | N
     return results
 
 
-def _discover_location_ids(jobs_url: str, location_filter: str) -> list[str]:
-    """POST with limit=1 to get location facets; return IDs whose descriptor contains location_filter."""
+def _discover_location_ids(jobs_url: str, location_filter: str) -> tuple[str, list[str]]:
+    """POST with limit=1 to get location facets; return (facet_key, [matching_ids]).
+
+    Handles two Workday facet structures:
+    - Nested (BlackRock, Barclays): locationMainGroup → values[].facetParameter="locations" → values[].{id, descriptor}
+    - Flat (Deutsche Bank): Location → values[].{id, descriptor}
+    """
     try:
         resp = requests.post(
             jobs_url,
@@ -85,20 +91,39 @@ def _discover_location_ids(jobs_url: str, location_filter: str) -> list[str]:
         resp.raise_for_status()
     except requests.RequestException as e:
         print(f"[workday] Failed to discover location facets: {e}")
-        return []
+        return ("", [])
 
     needle = location_filter.lower()
     for facet in resp.json().get("facets", []):
-        if facet.get("facetParameter") == "locations":
-            return [
-                v["facetParameter"]
-                for v in facet.get("values", [])
-                if needle in v.get("value", "").lower()
+        fp = facet.get("facetParameter", "")
+        values = facet.get("values", [])
+
+        # Nested pattern: top-level facet (e.g. "locationMainGroup") contains sub-facets
+        for v in values:
+            if v.get("values"):
+                nested_fp = v.get("facetParameter", fp)
+                ids = [
+                    nv["id"]
+                    for nv in v["values"]
+                    if needle in nv.get("descriptor", "").lower() and nv.get("id")
+                ]
+                if ids:
+                    return (nested_fp, ids)
+
+        # Flat pattern: location facet directly holds {id, descriptor} entries
+        if "location" in fp.lower():
+            ids = [
+                v["id"]
+                for v in values
+                if needle in v.get("descriptor", "").lower() and v.get("id")
             ]
-    return []
+            if ids:
+                return (fp, ids)
+
+    return ("", [])
 
 
-def _fetch_stubs(jobs_url: str, location_ids: list[str], canonical_base: str) -> list[dict]:
+def _fetch_stubs(jobs_url: str, location_facet_key: str, location_ids: list[str], canonical_base: str) -> list[dict]:
     """Paginate the Workday list endpoint and return all matching job stubs."""
     stubs = []
     offset = 0
@@ -111,7 +136,7 @@ def _fetch_stubs(jobs_url: str, location_ids: list[str], canonical_base: str) ->
                     "limit": _PAGE_SIZE,
                     "offset": offset,
                     "searchText": "",
-                    "appliedFacets": {"locations": location_ids},
+                    "appliedFacets": {location_facet_key: location_ids},
                 },
                 headers=_HEADERS,
                 timeout=REQUEST_TIMEOUT_SECS,

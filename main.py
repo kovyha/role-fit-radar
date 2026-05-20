@@ -64,7 +64,7 @@ def main():
         elif company["source"] == "eightfold":
             jobs = eightfold_fetch(company["domain"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
         elif company["source"] == "workday":
-            jobs = workday_fetch(company["tenant"], company["board"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
+            jobs = workday_fetch(company["tenant"], company["board"], LOCATION_FILTER, seen_urls=seen_urls, wd=company.get("wd", "wd1"), allowlist=allowlist, blocklist=blocklist)
         else:
             print(f"[main] Unknown source '{company['source']}' for {company['name']} — skipping")
             continue

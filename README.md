@@ -68,12 +68,28 @@ In your GitHub repo: Settings → Secrets and variables → Actions → New repo
 In `config.py`, add to the `COMPANIES` list:
 
 ```python
-# Greenhouse company (free, no scraping needed):
-{"name": "DeepMind", "source": "greenhouse", "board": "deepmind"}
+# Greenhouse:
+{"name": "DeepMind", "source": "greenhouse", "board": "deepmind",
+ "local_allowlist": frozenset(), "local_blocklist": TITLE_BLOCKLIST}
 
-# Non-Greenhouse company (requires implementing scraper):
-{"name": "Jane Street", "source": "scraper", "url": "https://www.janestreet.com/join-jane-street/open-roles/"}
+# Ashby:
+{"name": "Acme Corp", "source": "ashby", "org": "acmecorp",
+ "local_allowlist": TITLE_TERMS, "local_blocklist": TITLE_BLOCKLIST}
+
+# Eightfold:
+{"name": "Millennium", "source": "eightfold", "domain": "mlp.com",
+ "local_allowlist": TITLE_TERMS, "local_blocklist": TITLE_BLOCKLIST}
+
+# Workday (wd1 subdomain — default):
+{"name": "BlackRock", "source": "workday", "tenant": "blackrock", "board": "BlackRock_Professional",
+ "local_allowlist": TITLE_TERMS, "local_blocklist": TITLE_BLOCKLIST}
+
+# Workday (wd3 subdomain — some banks use wd3 instead of wd1):
+{"name": "Barclays", "source": "workday", "tenant": "barclays", "board": "External_Career_Site_Barclays",
+ "wd": "wd3", "local_allowlist": TITLE_TERMS, "local_blocklist": TITLE_BLOCKLIST}
 ```
+
+The `"wd"` key is optional and defaults to `"wd1"`. Set it to `"wd3"` (or `"wd5"`) when the company's Workday subdomain differs — check the company's careers URL to determine which subdomain they use.
 
 ---
 
