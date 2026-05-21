@@ -15,6 +15,7 @@
 #   Prints results to stdout. No Sheets write, no email.
 
 import argparse
+import signal
 from pathlib import Path
 
 from config import COMPANIES, LOCATION_FILTER, JOB_CONTENT_MAX_CHARS
@@ -32,6 +33,35 @@ from assessor import assess_fit
 from gmail import send_summary
 
 
+class _ScanTimeout(BaseException):
+    """Raised by the SIGTERM handler to trigger a partial flush when the runner times out."""
+    def __init__(self, pending: list):
+        self.pending = pending
+
+
+def _write_and_notify(all_new_jobs: list[dict], pending_companies: list[dict]) -> None:
+    """Write collected jobs to Sheets and send the summary email."""
+    if pending_companies:
+        print(
+            f"[main] Time limit reached — {len(pending_companies)} source(s) not scanned: "
+            + ", ".join(c["name"] for c in pending_companies)
+        )
+
+    if all_new_jobs:
+        sheet_urls = append_jobs(all_new_jobs)
+        for job, sheet_url in zip(all_new_jobs, sheet_urls):
+            job["sheet_url"] = sheet_url
+
+    send_summary(all_new_jobs, pending_companies=pending_companies)
+
+    if pending_companies:
+        print(f"[main] Partial run — {len(all_new_jobs)} role(s) processed, {len(pending_companies)} source(s) pending")
+    elif all_new_jobs:
+        print(f"[main] Done — {len(all_new_jobs)} new role(s) processed and emailed")
+    else:
+        print("[main] Done — no new roles found, status email sent")
+
+
 def main():
     print("=== Role Fit Radar — Starting scan ===")
 
@@ -46,68 +76,84 @@ def main():
 
     all_new_jobs = []
 
-    # Step 3 & 4: Fetch and diff
-    for company in COMPANIES:
-        print(f"[main] Scanning {company['name']} ({company['source']})...")
+    # _source_idx tracks which company is currently being fetched so the SIGTERM handler
+    # can correctly mark it (and all subsequent companies) as pending.
+    _source_idx = [0]
 
-        allowlist = company.get("local_allowlist")
-        blocklist = company.get("local_blocklist")
+    def _on_sigterm(sig, frame):
+        raise _ScanTimeout(list(COMPANIES[_source_idx[0]:]))
 
-        if company["source"] == "greenhouse":
-            jobs = greenhouse_fetch(company["board"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
-        elif company["source"] == "scraper":
-            jobs = scraper_fetch(company["url"], LOCATION_FILTER)
-        elif company["source"] == "linkedin_email":
-            jobs = linkedin_fetch(seen_urls=seen_urls)
-        elif company["source"] == "efinancialcareers":
-            jobs = efinancial_fetch(LOCATION_FILTER, seen_urls=seen_urls, search_terms=company.get("search_terms"), allowlist=allowlist, blocklist=blocklist)
-        elif company["source"] == "ashby":
-            jobs = ashby_fetch(company["org"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
-        elif company["source"] == "eightfold":
-            jobs = eightfold_fetch(company["domain"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist, use_playwright=company.get("use_playwright", False))
-        elif company["source"] == "workday":
-            jobs = workday_fetch(company["tenant"], company["board"], LOCATION_FILTER, seen_urls=seen_urls, wd=company.get("wd", "wd1"), allowlist=allowlist, blocklist=blocklist)
-        elif company["source"] == "higher":
-            jobs = higher_fetch(LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
-        elif company["source"] == "oracle_hcm":
-            jobs = oracle_hcm_fetch(company["host"], company["site"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
-        else:
-            print(f"[main] Unknown source '{company['source']}' for {company['name']} — skipping")
-            continue
+    signal.signal(signal.SIGTERM, _on_sigterm)
 
-        new_jobs = [j for j in jobs if j["url"] not in seen_urls]
-        print(f"[main] {company['name']}: {len(jobs)} total, {len(new_jobs)} new")
+    try:
+        # Step 3 & 4: Fetch and diff
+        for i, company in enumerate(COMPANIES):
+            _source_idx[0] = i  # mark as in-progress; SIGTERM will include this in pending
+            print(f"[main] Scanning {company['name']} ({company['source']})...")
 
-        # Step 5: Assess each new role
-        for job in new_jobs:
-            if company["source"] in ("greenhouse", "ashby", "eightfold", "workday", "higher", "oracle_hcm"):
-                job["company"] = company["name"]
-            title_key = f"{job.get('title', '').lower()}|{job.get('company', '').lower()}"
-            if title_key in seen_title_keys:
-                original_url = seen_title_keys[title_key]
-                print(f"[main] Duplicate (cross-platform): {job['title']} @ {job.get('company', '')}")
-                job.update({"fit_score": "", "key_strengths": "", "key_gaps": "",
-                            "recommendation": "Dup", "reasoning": f"Dup of {original_url}"})
+            allowlist = company.get("local_allowlist")
+            blocklist = company.get("local_blocklist")
+
+            if company["source"] == "greenhouse":
+                jobs = greenhouse_fetch(company["board"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
+            elif company["source"] == "scraper":
+                jobs = scraper_fetch(company["url"], LOCATION_FILTER)
+            elif company["source"] == "linkedin_email":
+                jobs = linkedin_fetch(seen_urls=seen_urls)
+            elif company["source"] == "efinancialcareers":
+                jobs = efinancial_fetch(LOCATION_FILTER, seen_urls=seen_urls, search_terms=company.get("search_terms"), allowlist=allowlist, blocklist=blocklist)
+            elif company["source"] == "ashby":
+                jobs = ashby_fetch(company["org"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
+            elif company["source"] == "eightfold":
+                jobs = eightfold_fetch(company["domain"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist, use_playwright=company.get("use_playwright", False))
+            elif company["source"] == "workday":
+                jobs = workday_fetch(company["tenant"], company["board"], LOCATION_FILTER, seen_urls=seen_urls, wd=company.get("wd", "wd1"), allowlist=allowlist, blocklist=blocklist)
+            elif company["source"] == "higher":
+                jobs = higher_fetch(LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
+            elif company["source"] == "oracle_hcm":
+                jobs = oracle_hcm_fetch(company["host"], company["site"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
+            else:
+                print(f"[main] Unknown source '{company['source']}' for {company['name']} — skipping")
+                _source_idx[0] = i + 1
+                continue
+
+            new_jobs = [j for j in jobs if j["url"] not in seen_urls]
+            print(f"[main] {company['name']}: {len(jobs)} total, {len(new_jobs)} new")
+
+            # Step 5: Assess each new role
+            for job in new_jobs:
+                if company["source"] in ("greenhouse", "ashby", "eightfold", "workday", "higher", "oracle_hcm"):
+                    job["company"] = company["name"]
+                title_key = f"{job.get('title', '').lower()}|{job.get('company', '').lower()}"
+                if title_key in seen_title_keys:
+                    original_url = seen_title_keys[title_key]
+                    print(f"[main] Duplicate (cross-platform): {job['title']} @ {job.get('company', '')}")
+                    job.update({"fit_score": "", "key_strengths": "", "key_gaps": "",
+                                "recommendation": "Dup", "reasoning": f"Dup of {original_url}"})
+                    job["source"] = company["source"]
+                    all_new_jobs.append(job)
+                    continue
+                seen_title_keys[title_key] = job.get("url", "")
+                print(f"[main] Assessing: {job['title']}")
+                assessment = assess_fit(job, profile)
+                job.update(assessment)
                 job["source"] = company["source"]
                 all_new_jobs.append(job)
-                continue
-            seen_title_keys[title_key] = job.get("url", "")
-            print(f"[main] Assessing: {job['title']}")
-            assessment = assess_fit(job, profile)
-            job.update(assessment)
-            job["source"] = company["source"]
-            all_new_jobs.append(job)
 
-    # Step 6 & 7: Write and notify
-    if all_new_jobs:
-        sheet_urls = append_jobs(all_new_jobs)
-        for job, sheet_url in zip(all_new_jobs, sheet_urls):
-            job["sheet_url"] = sheet_url
-    send_summary(all_new_jobs)
-    if all_new_jobs:
-        print(f"[main] Done — {len(all_new_jobs)} new role(s) processed and emailed")
-    else:
-        print("[main] Done — no new roles found, status email sent")
+            _source_idx[0] = i + 1  # mark as complete
+
+    except _ScanTimeout as exc:
+        # SIGTERM from GitHub Actions hitting its runner timeout.
+        # Ignore any further SIGTERMs so the flush can complete uninterrupted.
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        _write_and_notify(all_new_jobs, exc.pending)
+        return
+
+    finally:
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+
+    # Step 6 & 7: Normal completion — write and notify
+    _write_and_notify(all_new_jobs, [])
 
 
 def _print_assessment(name: str, result: dict) -> None:
