@@ -207,13 +207,31 @@ def _make_pw_mock(list_data: dict, detail_data: dict):
     return mock_p, mock_request
 
 
+def _pcsx_list(positions: list, count: int | None = None) -> dict:
+    """Wrap positions in the pcsx/search response envelope."""
+    return {"data": {"positions": positions, "count": count if count is not None else len(positions)}}
+
+
+def _pcsx_detail(description: str) -> dict:
+    """Wrap a job description in the pcsx/position_details response envelope."""
+    return {"data": {"jobDescription": description}}
+
+
+def _pcsx_pos(job_id: int, name: str, url_path: str = None, locations: list = None, department: str = "Tech") -> dict:
+    return {
+        "id": job_id,
+        "name": name,
+        "positionUrl": url_path or f"/careers/job/{job_id}",
+        "locations": locations or ["London, United Kingdom"],
+        "department": department,
+    }
+
+
 class TestPlaywrightPath:
     @pytest.mark.asyncio
     async def test_returns_job_with_content(self):
-        list_data = {"positions": [{"id": 99, "name": "Algo Trading Engineer",
-                                    "canonicalPositionUrl": "https://citi.eightfold.ai/careers/job/99",
-                                    "location": "London", "department": "Markets"}], "count": 1}
-        detail_data = {"job_description": "<p>Exciting role.</p>"}
+        list_data = _pcsx_list([_pcsx_pos(99, "Algo Trading Engineer", department="Markets")])
+        detail_data = _pcsx_detail("<p>Exciting role.</p>")
         mock_p, _ = _make_pw_mock(list_data, detail_data)
 
         with patch("sources.eightfold.async_playwright") as pw:
@@ -230,9 +248,7 @@ class TestPlaywrightPath:
 
     @pytest.mark.asyncio
     async def test_seen_url_skips_detail_fetch(self):
-        list_data = {"positions": [{"id": 99, "name": "Algo Trading Engineer",
-                                    "canonicalPositionUrl": "https://citi.eightfold.ai/careers/job/99",
-                                    "location": "London", "department": "Markets"}], "count": 1}
+        list_data = _pcsx_list([_pcsx_pos(99, "Algo Trading Engineer")])
         mock_p, mock_request = _make_pw_mock(list_data, {})
 
         with patch("sources.eightfold.async_playwright") as pw:
@@ -250,9 +266,7 @@ class TestPlaywrightPath:
 
     @pytest.mark.asyncio
     async def test_irrelevant_title_filtered(self):
-        list_data = {"positions": [{"id": 99, "name": "Product Manager",
-                                    "canonicalPositionUrl": "https://citi.eightfold.ai/careers/job/99",
-                                    "location": "London", "department": "Tech"}], "count": 1}
+        list_data = _pcsx_list([_pcsx_pos(99, "Product Manager")])
         mock_p, mock_request = _make_pw_mock(list_data, {})
 
         with patch("sources.eightfold.async_playwright") as pw:
@@ -267,9 +281,7 @@ class TestPlaywrightPath:
 
     @pytest.mark.asyncio
     async def test_blocklisted_title_filtered(self):
-        list_data = {"positions": [{"id": 99, "name": "Graduate Algo Analyst",
-                                    "canonicalPositionUrl": "https://citi.eightfold.ai/careers/job/99",
-                                    "location": "London", "department": "Tech"}], "count": 1}
+        list_data = _pcsx_list([_pcsx_pos(99, "Graduate Algo Analyst")])
         mock_p, mock_request = _make_pw_mock(list_data, {})
 
         with patch("sources.eightfold.async_playwright") as pw:
@@ -329,10 +341,8 @@ class TestPlaywrightPath:
 
     @pytest.mark.asyncio
     async def test_all_required_fields_present(self):
-        list_data = {"positions": [{"id": 42, "name": "Execution Algo Engineer",
-                                    "canonicalPositionUrl": "https://citi.eightfold.ai/careers/job/42",
-                                    "location": "London", "department": "Electronic Trading"}], "count": 1}
-        detail_data = {"job_description": "Responsible for execution algo."}
+        list_data = _pcsx_list([_pcsx_pos(42, "Execution Algo Engineer", department="Electronic Trading")])
+        detail_data = _pcsx_detail("Responsible for execution algo.")
         mock_p, _ = _make_pw_mock(list_data, detail_data)
 
         with patch("sources.eightfold.async_playwright") as pw:
