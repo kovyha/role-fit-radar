@@ -4,8 +4,11 @@
 
 import os
 import json
+import logging
 import anthropic
 from config import CLAUDE_MODEL, ASSESSOR_MAX_TOKENS, KEYWORD_ASSESS_HINTS
+
+_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
 
 
 def assess_fit(job: dict, profile: str) -> dict:
@@ -19,7 +22,6 @@ def assess_fit(job: dict, profile: str) -> dict:
     Returns:
         Dict with keys: fit_score, key_strengths, key_gaps, recommendation, reasoning
     """
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
     title_lower = job["title"].lower()
     hints = [
@@ -29,13 +31,16 @@ def assess_fit(job: dict, profile: str) -> dict:
     ]
     hint_block = ("\n\nASSESSMENT NOTE: " + " ".join(hints)) if hints else ""
 
-    prompt = f"""You are assessing the fit between a candidate profile and a job description.
-Be direct and adversarial — surface real gaps, not just positives. Do not pad.{hint_block}
+    system_text = (
+        "You are assessing the fit between a candidate profile and a job description. "
+        "Be direct and adversarial — surface real gaps, not just positives. Do not pad.\n\n"
+        "Read the complete career history in the candidate profile. Draw on ALL listed roles "
+        "when assessing strengths — recent roles reflect current scope but earlier roles may "
+        "contain the deepest domain expertise.\n\n"
+        f"CANDIDATE PROFILE:\n{profile}"
+    )
 
-Read the complete career history in the candidate profile. Draw on ALL listed roles when assessing strengths — recent roles reflect current scope but earlier roles may contain the deepest domain expertise.
-
-CANDIDATE PROFILE:
-{profile}
+    prompt = f"""Assess the fit for the following role and respond ONLY with a JSON object. No preamble, no markdown, no backticks.{hint_block}
 
 JOB TITLE: {job['title']}
 DEPARTMENT: {job['department']}
@@ -44,7 +49,6 @@ LOCATION: {job['location']}
 JOB DESCRIPTION:
 {job['content']}
 
-Assess the fit and respond ONLY with a JSON object. No preamble, no markdown, no backticks.
 Use exactly this structure:
 {{
   "fit_score": <integer 1-10>,
@@ -55,10 +59,11 @@ Use exactly this structure:
 }}"""
 
     try:
-        message = client.messages.create(
+        message = _client.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=ASSESSOR_MAX_TOKENS,
-            messages=[{"role": "user", "content": prompt}]
+            system=[{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": prompt}],
         )
 
         raw = message.content[0].text.strip()
@@ -73,7 +78,7 @@ Use exactly this structure:
         return json.loads(raw)
 
     except Exception as e:
-        print(f"[assessor] Failed to assess {job['title']}: {e}")
+        logging.getLogger(__name__).error("[assessor] Failed to assess %s: %s", job['title'], e)
         return {
             "fit_score": 0,
             "key_strengths": "Assessment failed",
