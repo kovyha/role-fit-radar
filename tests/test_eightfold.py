@@ -70,7 +70,7 @@ class TestFetchJobs:
         assert jobs == []
 
     def test_all_required_fields_present(self):
-        stub = _stub(1001, "Systematic Trading Analyst", "https://mlp.eightfold.ai/careers/job/1001")
+        stub = _stub(1001, "Systematic Trading Developer", "https://mlp.eightfold.ai/careers/job/1001")
         with patch("requests.get", side_effect=[_list_response([stub]), _detail_response("Risk role.")]):
             jobs = fetch_jobs("mlp.com", "London")
 

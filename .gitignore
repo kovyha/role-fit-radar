@@ -1,5 +1,6 @@
 # Never commit secrets
 *.json
+!.claude/settings.json
 .env
 service-account*.json
 

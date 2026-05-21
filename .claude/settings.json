@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "statusMessage": "Checking for concurrent session conflicts...",
+            "command": "INPUT=$(cat); SESSION=$(printf '%s' \"$INPUT\" | jq -r '.session_id // empty'); FILE=$(printf '%s' \"$INPUT\" | jq -r '.tool_input.file_path // .tool_input.notebook_path // empty'); if [ -z \"$FILE\" ]; then exit 0; fi; STATUS=$(git status --porcelain \"$FILE\" 2>/dev/null); if [ -n \"$STATUS\" ]; then TOUCHED=\"/tmp/claude-${SESSION}-touched\"; if [ -n \"$SESSION\" ] && grep -qxF \"$FILE\" \"$TOUCHED\" 2>/dev/null; then exit 0; fi; BASENAME=$(basename \"$FILE\"); printf '{\"decision\":\"block\",\"reason\":\"⚠ BLOCKED: %s has uncommitted changes from another session — run: git diff %s to review, then stash or commit before editing here.\"}' \"$BASENAME\" \"$BASENAME\"; exit 2; fi; exit 0"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "INPUT=$(cat); SESSION=$(printf '%s' \"$INPUT\" | jq -r '.session_id // empty'); FILE=$(printf '%s' \"$INPUT\" | jq -r '.tool_input.file_path // .tool_input.notebook_path // empty'); if [ -n \"$SESSION\" ] && [ -n \"$FILE\" ]; then echo \"$FILE\" >> \"/tmp/claude-${SESSION}-touched\"; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
