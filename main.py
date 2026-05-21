@@ -15,7 +15,10 @@
 #   Prints results to stdout. No Sheets write, no email.
 
 import argparse
+import contextvars
+import fcntl
 import logging
+import os
 import signal
 import time
 from pathlib import Path
@@ -34,11 +37,44 @@ from sheets import get_seen_urls, get_seen_title_company_keys, get_profile, appe
 from assessor import assess_fit
 from gmail import send_summary
 
-logging.basicConfig(
-    format="%(asctime)s [%(name)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    level=logging.INFO,
-)
+
+# Ambient context: set by _fetch_with_company_context before each source fetch,
+# read by _CompanyFilter on every LogRecord. Scopes log lines to the active company
+# without threading the name through every function call.
+_current_company: contextvars.ContextVar[str] = contextvars.ContextVar("current_company", default="")
+
+
+class _CompanyFilter(logging.Filter):
+    # Appends the active company name to the logger name so [greenhouse] becomes
+    # [greenhouse/Goldman Sachs]. Reads _current_company set by _fetch_with_company_context.
+    def filter(self, record: logging.LogRecord) -> bool:
+        company = _current_company.get()
+        if company:
+            record.name = f"{record.name}/{company}"
+        return True
+
+
+class _BlockingSafeHandler(logging.StreamHandler):
+    # Python 3.11 on Linux: asyncio can leave stdout in non-blocking mode,
+    # causing StreamHandler.emit() to raise BlockingIOError (EAGAIN). Retry
+    # once with a blocking write so log records aren't silently dropped.
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            super().emit(record)
+        except BlockingIOError:
+            fd = self.stream.fileno()
+            flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+            fcntl.fcntl(fd, fcntl.F_SETFL, flags & ~os.O_NONBLOCK)
+            try:
+                super().emit(record)
+            finally:
+                fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+
+
+_handler = _BlockingSafeHandler()
+_handler.addFilter(_CompanyFilter())
+_handler.setFormatter(logging.Formatter("%(asctime)s [%(name)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+logging.basicConfig(handlers=[_handler], level=logging.INFO)
 logger = logging.getLogger("main")
 
 
@@ -69,6 +105,41 @@ def _write_and_notify(all_new_jobs: list[dict], pending_companies: list[dict]) -
         logger.info(f"Done — {len(all_new_jobs)} new role(s) processed and emailed")
     else:
         logger.info("Done — no new roles found, status email sent")
+
+
+def _fetch_with_company_context(company: dict, seen_urls: set, allowlist, blocklist) -> list[dict] | None:
+    """Dispatch to the right source fetch function for this company.
+
+    Sets _current_company before the fetch so every log line emitted during the
+    call reads [source/company_name] instead of [source]. The contextvar is reset
+    on return so stale company names don't leak into unrelated log lines.
+
+    Returns None for unknown source types (caller handles the skip).
+    """
+    token = _current_company.set(company["name"])  # scopes log lines to this company
+    try:
+        source = company["source"]
+        if source == "greenhouse":
+            return greenhouse_fetch(company["board"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
+        elif source == "scraper":
+            return scraper_fetch(company["url"], LOCATION_FILTER)
+        elif source == "linkedin_email":
+            return linkedin_fetch(seen_urls=seen_urls)
+        elif source == "efinancialcareers":
+            return efinancial_fetch(LOCATION_FILTER, seen_urls=seen_urls, search_terms=company.get("search_terms"), allowlist=allowlist, blocklist=blocklist)
+        elif source == "ashby":
+            return ashby_fetch(company["org"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
+        elif source == "eightfold":
+            return eightfold_fetch(company["domain"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist, use_playwright=company.get("use_playwright", False))
+        elif source == "workday":
+            return workday_fetch(company["tenant"], company["board"], LOCATION_FILTER, seen_urls=seen_urls, wd=company.get("wd", "wd1"), allowlist=allowlist, blocklist=blocklist)
+        elif source == "higher":
+            return higher_fetch(LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
+        elif source == "oracle_hcm":
+            return oracle_hcm_fetch(company["host"], company["site"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
+        return None
+    finally:
+        _current_company.reset(token)
 
 
 def main():
@@ -106,25 +177,8 @@ def main():
             blocklist = company.get("local_blocklist")
 
             t0 = time.monotonic()
-            if company["source"] == "greenhouse":
-                jobs = greenhouse_fetch(company["board"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
-            elif company["source"] == "scraper":
-                jobs = scraper_fetch(company["url"], LOCATION_FILTER)
-            elif company["source"] == "linkedin_email":
-                jobs = linkedin_fetch(seen_urls=seen_urls)
-            elif company["source"] == "efinancialcareers":
-                jobs = efinancial_fetch(LOCATION_FILTER, seen_urls=seen_urls, search_terms=company.get("search_terms"), allowlist=allowlist, blocklist=blocklist)
-            elif company["source"] == "ashby":
-                jobs = ashby_fetch(company["org"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
-            elif company["source"] == "eightfold":
-                jobs = eightfold_fetch(company["domain"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist, use_playwright=company.get("use_playwright", False))
-            elif company["source"] == "workday":
-                jobs = workday_fetch(company["tenant"], company["board"], LOCATION_FILTER, seen_urls=seen_urls, wd=company.get("wd", "wd1"), allowlist=allowlist, blocklist=blocklist)
-            elif company["source"] == "higher":
-                jobs = higher_fetch(LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
-            elif company["source"] == "oracle_hcm":
-                jobs = oracle_hcm_fetch(company["host"], company["site"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
-            else:
+            jobs = _fetch_with_company_context(company, seen_urls, allowlist, blocklist)
+            if jobs is None:
                 logger.warning(f"Unknown source '{company['source']}' for {company['name']} — skipping")
                 _source_idx[0] = i + 1
                 continue
