@@ -1,7 +1,10 @@
+import logging
 import re
 import io
 import requests
 from pathlib import Path
+
+logger = logging.getLogger(__name__.rsplit(".", 1)[-1])
 
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt"}
 
@@ -103,9 +106,9 @@ def load_from_directory(dir_path: str) -> list[tuple[str, str]]:
             try:
                 name, text = load_from_file(str(p))
                 results.append((name, text))
-                print(f"[file_mode] Loaded: {p.name}")
+                logger.info(f"Loaded: {p.name}")
             except Exception as e:
-                print(f"[file_mode] Skipping {p.name}: {e}")
+                logger.warning(f"Skipping {p.name}: {e}")
     return results
 
 

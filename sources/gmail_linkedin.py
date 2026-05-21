@@ -3,10 +3,11 @@
 # Each email contains job cards; we parse the HTML to extract URLs and titles.
 # For each LinkedIn job, we fetch the full description via Playwright (headless).
 
-import os
-import imaplib
 import email
 import email.message
+import imaplib
+import logging
+import os
 import re
 
 from bs4 import BeautifulSoup
@@ -17,6 +18,8 @@ from config import (
     JOB_CONTENT_MAX_CHARS,
     PLAYWRIGHT_PAGE_TIMEOUT_MS, PLAYWRIGHT_SELECTOR_TIMEOUT_MS, PLAYWRIGHT_FALLBACK_WAIT_MS,
 )
+
+logger = logging.getLogger(__name__.rsplit(".", 1)[-1])
 
 
 def fetch_jobs(seen_urls: set = None) -> list[dict]:
@@ -36,7 +39,7 @@ def fetch_jobs(seen_urls: set = None) -> list[dict]:
         gmail_password = (os.environ.get("GMAIL_APP_PASSWORD") or "").replace(" ", "").strip()
 
         if not gmail_user or not gmail_password:
-            print("[gmail_linkedin] Missing GMAIL_USER or GMAIL_APP_PASSWORD — skipping")
+            logger.warning("Missing GMAIL_USER or GMAIL_APP_PASSWORD — skipping")
             return []
 
         mail.login(gmail_user, gmail_password)
@@ -44,7 +47,7 @@ def fetch_jobs(seen_urls: set = None) -> list[dict]:
         # Step 2: List available mailboxes to find the right label
         status, mailboxes = mail.list()
         if status != 'OK':
-            print("[gmail_linkedin] Could not list mailboxes")
+            logger.error("Could not list mailboxes")
             mail.close()
             mail.logout()
             return []
@@ -62,9 +65,9 @@ def fetch_jobs(seen_urls: set = None) -> list[dict]:
                     break
 
         if not label_name:
-            print(f"[gmail_linkedin] Label '{LINKEDIN_LABEL}' not found. Available labels:")
+            logger.warning(f"Label '{LINKEDIN_LABEL}' not found. Available labels:")
             for mailbox in mailboxes:
-                print(f"  {mailbox}")
+                logger.info(f"  {mailbox}")
             mail.close()
             mail.logout()
             return []
@@ -72,7 +75,7 @@ def fetch_jobs(seen_urls: set = None) -> list[dict]:
         # Step 3: Select the label
         status, _ = mail.select(label_name)
         if status != 'OK':
-            print(f"[gmail_linkedin] Could not select label '{label_name}'")
+            logger.error(f"Could not select label '{label_name}'")
             mail.close()
             mail.logout()
             return []
@@ -86,13 +89,13 @@ def fetch_jobs(seen_urls: set = None) -> list[dict]:
                 all_nums.update(result[0].split())
 
         if not all_nums:
-            print("[gmail_linkedin] No LinkedIn job alert emails found")
+            logger.info("No LinkedIn job alert emails found")
             mail.close()
             mail.logout()
             return []
 
         message_nums = [b' '.join(sorted(all_nums))]
-        print(f"[gmail_linkedin] Found {len(all_nums)} email(s) to parse")
+        logger.info(f"Found {len(all_nums)} email(s) to parse")
 
         # Step 5: Parse each email and extract job listings
         for num in message_nums[0].split():
@@ -122,9 +125,9 @@ def fetch_jobs(seen_urls: set = None) -> list[dict]:
                 delta_jobs.append(job)
 
         # Step 6: Fetch descriptions only for the delta
-        print(f"[gmail_linkedin] {len(delta_jobs)} new job(s) to fetch descriptions for")
+        logger.info(f"{len(delta_jobs)} new job(s) to fetch descriptions for")
         for i, job in enumerate(delta_jobs, 1):
-            print(f"[gmail_linkedin] Fetching description {i}/{len(delta_jobs)}: {job['title']}")
+            logger.info(f"Fetching description {i}/{len(delta_jobs)}: {job['title']}")
             page_data = _fetch_job_description(job["url"])
             job["content"] = page_data["content"]
             if page_data["company"]:
@@ -132,11 +135,11 @@ def fetch_jobs(seen_urls: set = None) -> list[dict]:
             if page_data["location"]:
                 job["location"] = page_data["location"]
 
-        print(f"[gmail_linkedin] Done — {len(delta_jobs)} new job(s) from LinkedIn alerts")
+        logger.info(f"Done — {len(delta_jobs)} new job(s) from LinkedIn alerts")
         return delta_jobs
 
     except Exception as e:
-        print(f"[gmail_linkedin] Error fetching jobs: {e}")
+        logger.error(f"Error fetching jobs: {e}")
         return []
 
 
@@ -239,7 +242,7 @@ def _fetch_job_description(job_url: str) -> dict:
         import asyncio
         return asyncio.run(_fetch_description_async(job_url))
     except Exception as e:
-        print(f"[gmail_linkedin] Could not fetch description for {job_url}: {e}")
+        logger.error(f"Could not fetch description for {job_url}: {e}")
         return {"content": "", "company": "", "location": ""}
 
 
@@ -314,5 +317,5 @@ async def _fetch_description_async(job_url: str) -> dict:
             }
 
     except Exception as e:
-        print(f"[gmail_linkedin] Playwright error for {job_url}: {e}")
+        logger.error(f"Playwright error for {job_url}: {e}")
         return {"content": "", "company": "", "location": ""}

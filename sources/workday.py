@@ -11,11 +11,14 @@
 # so they don't need to be hardcoded in config.
 
 import html as html_lib
+import logging
 import time
 import requests
 from bs4 import BeautifulSoup
 from config import JOB_CONTENT_MAX_CHARS, REQUEST_TIMEOUT_SECS, TITLE_TERMS, TITLE_BLOCKLIST
-from sources.filters import passes_local_filter
+from sources.filters import passes_local_filter, explain_filter_result, log_filter_debug
+
+logger = logging.getLogger(__name__.rsplit(".", 1)[-1])
 
 
 _HEADERS = {
@@ -54,23 +57,37 @@ def fetch_jobs(tenant: str, board: str, location_filter: str, seen_urls: set | N
     # Phase 1: discover location facet key + IDs then collect stubs
     location_facet_key, location_ids = _discover_location_ids(jobs_url, location_filter)
     if not location_ids:
-        print(f"[workday] No location facets matched '{location_filter}' for {tenant}/{board}")
+        logger.warning(f"No location facets matched '{location_filter}' for {tenant}/{board}")
         return []
 
     stubs = _fetch_stubs(jobs_url, location_facet_key, location_ids, canonical_base)
 
     # Phase 2: fetch descriptions for new, relevant jobs
+    is_debug = logger.isEnabledFor(logging.DEBUG)
+    debug_fetched: list[str] = []
+    debug_blocked: list[tuple[str, str]] = []
+    debug_kept: list[str] = []
+
     results = []
     for stub in stubs:
         if stub["url"] in seen_urls:
             continue
-        if not passes_local_filter(stub["title"], allowlist, blocklist):
+        title = stub["title"]
+        if is_debug:
+            debug_fetched.append(title)
+        if not passes_local_filter(title, allowlist, blocklist):
+            if is_debug:
+                debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
             continue
+        if is_debug:
+            debug_kept.append(title)
         content = _fetch_content(api_base, stub.pop("external_path"))
         stub["content"] = content
         results.append(stub)
         time.sleep(1)  # pace detail calls — Cloudflare is present
 
+    if is_debug:
+        log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept)
     return results
 
 
@@ -90,7 +107,7 @@ def _discover_location_ids(jobs_url: str, location_filter: str) -> tuple[str, li
         )
         resp.raise_for_status()
     except requests.RequestException as e:
-        print(f"[workday] Failed to discover location facets: {e}")
+        logger.error(f"Failed to discover location facets: {e}")
         return ("", [])
 
     needle = location_filter.lower()
@@ -143,7 +160,7 @@ def _fetch_stubs(jobs_url: str, location_facet_key: str, location_ids: list[str]
             )
             resp.raise_for_status()
         except requests.RequestException as e:
-            print(f"[workday] Failed to fetch stubs (offset={offset}): {e}")
+            logger.error(f"Failed to fetch stubs (offset={offset}): {e}")
             break
 
         data = resp.json()
@@ -176,7 +193,7 @@ def _fetch_content(api_base: str, external_path: str) -> str:
         raw = resp.json().get("jobPostingInfo", {}).get("jobDescription", "") or ""
         return _strip_html(raw)[:JOB_CONTENT_MAX_CHARS]
     except requests.RequestException as e:
-        print(f"[workday] Failed to fetch content for {external_path}: {e}")
+        logger.error(f"Failed to fetch content for {external_path}: {e}")
         return ""
 
 

@@ -9,10 +9,13 @@
 # _discover_location_filter() resolves both levels from location_filter at runtime.
 
 import html as html_lib
+import logging
 import requests
 from bs4 import BeautifulSoup
 from config import JOB_CONTENT_MAX_CHARS, REQUEST_TIMEOUT_SECS, TITLE_TERMS, TITLE_BLOCKLIST
-from sources.filters import passes_local_filter
+from sources.filters import passes_local_filter, explain_filter_result, log_filter_debug
+
+logger = logging.getLogger(__name__.rsplit(".", 1)[-1])
 
 
 _GQL_URL = "https://api-higher.gs.com/gateway/api/v1/graphql"
@@ -74,7 +77,7 @@ def fetch_jobs(location_filter: str, seen_urls: set | None = None, *, allowlist:
 
     country, subfilter = _discover_location_filter(location_filter)
     if not subfilter:
-        print(f"[higher] No location filter matched '{location_filter}'")
+        logger.warning(f"No location filter matched '{location_filter}'")
         return []
 
     return _fetch_stubs(country, subfilter, seen_urls, allowlist, blocklist)
@@ -86,7 +89,7 @@ def _discover_location_filter(location_filter: str) -> tuple[str, str]:
         resp = requests.post(_GQL_URL, json={"query": _FILTERS_QUERY}, headers=_HEADERS, timeout=REQUEST_TIMEOUT_SECS)
         resp.raise_for_status()
     except requests.RequestException as e:
-        print(f"[higher] Failed to fetch location filters: {e}")
+        logger.error(f"Failed to fetch location filters: {e}")
         return ("", "")
 
     needle = location_filter.lower()
@@ -122,6 +125,11 @@ def _fetch_stubs(country: str, subfilter: str, seen_urls: set, allowlist: frozen
             }
         ]
 
+    is_debug = logger.isEnabledFor(logging.DEBUG)
+    debug_fetched: list[str] = []
+    debug_blocked: list[tuple[str, str]] = []
+    debug_kept: list[str] = []
+
     results = []
     page = 0
 
@@ -140,7 +148,7 @@ def _fetch_stubs(country: str, subfilter: str, seen_urls: set, allowlist: frozen
             resp = requests.post(_GQL_URL, json=payload, headers=_HEADERS, timeout=REQUEST_TIMEOUT_SECS)
             resp.raise_for_status()
         except requests.RequestException as e:
-            print(f"[higher] Failed to fetch jobs (page={page}): {e}")
+            logger.error(f"Failed to fetch jobs (page={page}): {e}")
             break
 
         data = resp.json().get("data", {}).get("roleSearch", {})
@@ -154,8 +162,14 @@ def _fetch_stubs(country: str, subfilter: str, seen_urls: set, allowlist: frozen
                 continue
 
             title = item.get("jobTitle", "")
+            if is_debug:
+                debug_fetched.append(title)
             if not passes_local_filter(title, allowlist, blocklist):
+                if is_debug:
+                    debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
                 continue
+            if is_debug:
+                debug_kept.append(title)
 
             locs = item.get("locations") or []
             location = ", ".join(filter(None, [locs[0].get("city", ""), locs[0].get("country", "")])) if locs else ""
@@ -174,6 +188,8 @@ def _fetch_stubs(country: str, subfilter: str, seen_urls: set, allowlist: frozen
             break
         page += 1
 
+    if is_debug:
+        log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept)
     return results
 
 

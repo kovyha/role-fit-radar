@@ -3,6 +3,7 @@
 # Two-phase fetch: (1) collect all job stubs cheaply, (2) fetch descriptions only
 # for the delta (URLs not already in the Google Sheet).
 
+import logging
 from urllib.parse import quote
 
 from playwright.async_api import async_playwright
@@ -13,8 +14,9 @@ from config import (
     PLAYWRIGHT_PAGE_TIMEOUT_MS, PLAYWRIGHT_SELECTOR_TIMEOUT_MS, PLAYWRIGHT_FALLBACK_WAIT_MS,
     TITLE_TERMS, TITLE_BLOCKLIST,
 )
-from sources.filters import passes_local_filter
+from sources.filters import passes_local_filter, explain_filter_result, log_filter_debug
 
+logger = logging.getLogger(__name__.rsplit(".", 1)[-1])
 
 EFINANCIAL_BASE = "https://www.efinancialcareers.co.uk/jobs"
 USER_AGENT = (
@@ -54,7 +56,7 @@ def fetch_jobs(
         import asyncio
         return asyncio.run(_fetch_jobs_async(location_filter, seen_urls or set(), search_terms, allowlist, blocklist))
     except Exception as e:
-        print(f"[efinancialcareers] Error fetching jobs: {e}")
+        logger.error(f"Error fetching jobs: {e}")
         return []
 
 
@@ -70,11 +72,12 @@ async def _fetch_jobs_async(
       Phase 1: collect all job stubs across every search term (title, url, company, location)
       Phase 2: fetch descriptions only for URLs not already in the Google Sheet
     """
-    print(f"[efinancialcareers] Searching {len(search_terms)} term(s): {', '.join(sorted(search_terms))}")
+    logger.info(f"Searching {len(search_terms)} term(s): {', '.join(sorted(search_terms))}")
 
     stubs = []
     seen_in_run: set[str] = set()
     first_url_per_keyword: list[str] = []
+    is_debug = logger.isEnabledFor(logging.DEBUG)
 
     try:
         async with async_playwright() as p:
@@ -86,6 +89,9 @@ async def _fetch_jobs_async(
                 keyword_first_url = None
                 keyword_total_cards = 0
                 keyword_stubs_before = len(stubs)
+                kw_fetched: list[str] = []
+                kw_blocked: list[tuple[str, str]] = []
+                kw_kept: list[str] = []
                 while True:
                     url = _build_search_url(keyword, location_filter, page=page_num)
                     try:
@@ -111,21 +117,27 @@ async def _fetch_jobs_async(
                                 company  = await elem.evaluate('el => el.querySelector(".font-body-3.company")?.textContent?.trim() || "Unknown"')
                                 location = await elem.evaluate('el => el.querySelector(".font-helper-text.location span.dot-divider")?.textContent?.trim() || ""')
 
-                                if (job_url
-                                        and job_url not in seen_in_run
-                                        and job_url not in sheet_seen_urls
-                                        and passes_local_filter(title, allowlist, blocklist)):
-                                    seen_in_run.add(job_url)
-                                    stubs.append({
-                                        "title":      title or "Unknown Role",
-                                        "url":        job_url,
-                                        "company":    company,
-                                        "location":   location,
-                                        "department": "",
-                                        "content":    "",
-                                    })
+                                if not job_url or job_url in seen_in_run or job_url in sheet_seen_urls:
+                                    continue
+                                if is_debug:
+                                    kw_fetched.append(title or "Unknown Role")
+                                if not passes_local_filter(title, allowlist, blocklist):
+                                    if is_debug:
+                                        kw_blocked.append((title or "Unknown Role", explain_filter_result(title, allowlist, blocklist)))
+                                    continue
+                                if is_debug:
+                                    kw_kept.append(title or "Unknown Role")
+                                seen_in_run.add(job_url)
+                                stubs.append({
+                                    "title":      title or "Unknown Role",
+                                    "url":        job_url,
+                                    "company":    company,
+                                    "location":   location,
+                                    "department": "",
+                                    "content":    "",
+                                })
                             except Exception as e:
-                                print(f"[efinancialcareers] Error extracting job card: {e}")
+                                logger.warning(f"Error extracting job card: {e}")
                                 continue
 
                         keyword_total_cards += len(job_elements)
@@ -138,7 +150,7 @@ async def _fetch_jobs_async(
                         page_num += 1
 
                     except Exception as e:
-                        print(f"[efinancialcareers] Error processing keyword '{keyword}' page {page_num}: {e}")
+                        logger.error(f"Error processing keyword '{keyword}' page {page_num}: {e}")
                         try:
                             await page.close()
                             await context.close()
@@ -147,28 +159,30 @@ async def _fetch_jobs_async(
                         break
 
                 keyword_kept = len(stubs) - keyword_stubs_before
-                print(f"[efinancialcareers] '{keyword}': {keyword_total_cards} cards fetched ({page_num} page(s)), {keyword_kept} kept after filter")
+                logger.info(f"'{keyword}': {keyword_total_cards} cards fetched ({page_num} page(s)), {keyword_kept} kept after filter")
+                if is_debug:
+                    log_filter_debug(logger, kw_fetched, kw_blocked, kw_kept)
 
             # Fallback detection — warn if eFC is returning a generic default list
             if len(first_url_per_keyword) >= 3:
                 most_common = max(set(first_url_per_keyword), key=first_url_per_keyword.count)
                 repeat_rate = first_url_per_keyword.count(most_common) / len(first_url_per_keyword)
                 if repeat_rate > 0.5:
-                    print(
-                        f"[efinancialcareers] WARNING: {int(repeat_rate * 100)}% of keywords returned "
-                        f"the same first result — eFC search URL format may be broken."
+                    logger.warning(
+                        f"{int(repeat_rate * 100)}% of keywords returned the same first result "
+                        f"— eFC search URL format may be broken."
                     )
 
             # ── Phase 2: fetch descriptions for the delta only ────────────────
-            print(f"[efinancialcareers] {len(stubs)} new job(s) to fetch descriptions for")
+            logger.info(f"{len(stubs)} new job(s) to fetch descriptions for")
             for i, stub in enumerate(stubs, 1):
-                print(f"[efinancialcareers] Fetching description {i}/{len(stubs)}: {stub['title']}")
+                logger.info(f"Fetching description {i}/{len(stubs)}: {stub['title']}")
                 stub["content"] = await _fetch_job_description_async(browser, stub["url"])
 
             await browser.close()
 
     except Exception as e:
-        print(f"[efinancialcareers] Playwright error: {e}")
+        logger.error(f"Playwright error: {e}")
         return []
 
     return stubs
@@ -206,5 +220,5 @@ async def _fetch_job_description_async(browser, job_url: str) -> str:
         return ' '.join(description.split())[:JOB_CONTENT_MAX_CHARS]
 
     except Exception as e:
-        print(f"[efinancialcareers] Could not fetch description for {job_url}: {e}")
+        logger.error(f"Could not fetch description for {job_url}: {e}")
         return ""

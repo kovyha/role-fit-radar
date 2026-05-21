@@ -66,7 +66,12 @@ Requires `GMAIL_USER`, `GMAIL_APP_PASSWORD` in the environment. Not committed (g
 ```bash
 # Requires real credentials in environment — do not run in CI without secrets
 uv run python main.py
+
+# Enable DEBUG logging — shows per-source title filter breakdown (fetched / blocked / kept)
+uv run python main.py --debug
 ```
+
+The `--debug` flag is also available as a manual-dispatch input in `.github/workflows/scan.yml` (set the `debug` input to `true` when triggering a run from the GitHub Actions UI).
 
 ## Environment variables required
 

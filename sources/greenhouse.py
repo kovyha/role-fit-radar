@@ -10,10 +10,13 @@
 # for boards like QRT that don't publish all roles to the public board widget.
 
 import html as html_lib
+import logging
 import requests
 from bs4 import BeautifulSoup
 from config import JOB_CONTENT_MAX_CHARS, REQUEST_TIMEOUT_SECS, TITLE_TERMS, TITLE_BLOCKLIST
-from sources.filters import passes_local_filter
+from sources.filters import passes_local_filter, explain_filter_result, log_filter_debug
+
+logger = logging.getLogger(__name__.rsplit(".", 1)[-1])
 
 
 GREENHOUSE_JOBS_API = "https://boards-api.greenhouse.io/v1/boards/{board}/jobs"
@@ -44,7 +47,7 @@ def fetch_jobs(board: str, location_filter: str, seen_urls: set | None = None, *
         response = requests.get(stubs_url, timeout=REQUEST_TIMEOUT_SECS)
         response.raise_for_status()
     except requests.RequestException as e:
-        print(f"[greenhouse] Failed to fetch {stubs_url}: {e}")
+        logger.error(f"Failed to fetch {stubs_url}: {e}")
         return []
 
     data = response.json()
@@ -52,12 +55,23 @@ def fetch_jobs(board: str, location_filter: str, seen_urls: set | None = None, *
 
     # Filter by location, title relevance, and skip already-seen URLs
     candidates = []
+    is_debug = logger.isEnabledFor(logging.DEBUG)
+    debug_fetched: list[str] = []
+    debug_blocked: list[tuple[str, str]] = []
+    debug_kept: list[str] = []
     for job in stubs:
         location = job.get("location", {}).get("name", "")
         if location_filter.lower() not in location.lower():
             continue
-        if not passes_local_filter(job.get("title", ""), allowlist, blocklist):
+        title = job.get("title", "")
+        if is_debug:
+            debug_fetched.append(title)
+        if not passes_local_filter(title, allowlist, blocklist):
+            if is_debug:
+                debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
             continue
+        if is_debug:
+            debug_kept.append(title)
         job_url = job.get("absolute_url", "")
         if job_url in seen_urls:
             continue
@@ -65,11 +79,13 @@ def fetch_jobs(board: str, location_filter: str, seen_urls: set | None = None, *
         department = departments[0].get("name", "Unknown") if departments else "Unknown"
         candidates.append({
             "id":         job["id"],
-            "title":      job.get("title", ""),
+            "title":      title,
             "url":        job_url,
             "location":   location,
             "department": department,
         })
+    if is_debug:
+        log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept)
 
     # Phase 2: fetch description for each new job
     results = []
@@ -90,7 +106,7 @@ def _fetch_content(board: str, job_id: int) -> str:
         raw_content = response.json().get("content", "")
         return _strip_html(raw_content)[:JOB_CONTENT_MAX_CHARS]
     except requests.RequestException as e:
-        print(f"[greenhouse] Failed to fetch content for job {job_id}: {e}")
+        logger.error(f"Failed to fetch content for job {job_id}: {e}")
         return ""
 
 

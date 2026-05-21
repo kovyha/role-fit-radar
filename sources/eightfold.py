@@ -6,6 +6,7 @@
 
 import html as html_lib
 import asyncio
+import logging
 import requests
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
@@ -13,7 +14,9 @@ from config import (
     JOB_CONTENT_MAX_CHARS, REQUEST_TIMEOUT_SECS, PLAYWRIGHT_PAGE_TIMEOUT_MS,
     PLAYWRIGHT_AUTH_SETTLE_MS, TITLE_TERMS, TITLE_BLOCKLIST,
 )
-from sources.filters import passes_local_filter
+from sources.filters import passes_local_filter, explain_filter_result, log_filter_debug
+
+logger = logging.getLogger(__name__.rsplit(".", 1)[-1])
 
 _USER_AGENT = (
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
@@ -125,16 +128,30 @@ def fetch_jobs(
 
     stubs = _fetch_stubs(base_url, domain, location_filter)
 
+    is_debug = logger.isEnabledFor(logging.DEBUG)
+    debug_fetched: list[str] = []
+    debug_blocked: list[tuple[str, str]] = []
+    debug_kept: list[str] = []
+
     results = []
     for stub in stubs:
         if stub["url"] in seen_urls:
             continue
-        if not passes_local_filter(stub["title"], allowlist, blocklist):
+        title = stub["title"]
+        if is_debug:
+            debug_fetched.append(title)
+        if not passes_local_filter(title, allowlist, blocklist):
+            if is_debug:
+                debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
             continue
+        if is_debug:
+            debug_kept.append(title)
         content = _fetch_content(base_url, domain, stub.pop("id"))
         stub["content"] = content
         results.append(stub)
 
+    if is_debug:
+        log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept)
     return results
 
 
@@ -173,7 +190,7 @@ def _fetch_stubs(base_url: str, domain: str, location_filter: str) -> list[dict]
             response = requests.get(base_url, params=params, timeout=REQUEST_TIMEOUT_SECS)
             response.raise_for_status()
         except requests.RequestException as e:
-            print(f"[eightfold] Failed to fetch stubs (start={start}): {e}")
+            logger.error(f"Failed to fetch stubs (start={start}): {e}")
             break
 
         page_stubs, total = _parse_stubs(response.json())
@@ -193,7 +210,7 @@ def _fetch_content(detail_base: str, domain: str, job_id: int) -> str:
         response.raise_for_status()
         return _parse_description(response.json())
     except requests.RequestException as e:
-        print(f"[eightfold] Failed to fetch content for job {job_id}: {e}")
+        logger.error(f"Failed to fetch content for job {job_id}: {e}")
         return ""
 
 
@@ -226,7 +243,7 @@ async def _fetch_jobs_playwright(
             await page.goto(careers_url, wait_until="load", timeout=PLAYWRIGHT_PAGE_TIMEOUT_MS)
             await page.wait_for_timeout(PLAYWRIGHT_AUTH_SETTLE_MS)  # PCSX JS challenge sets auth cookie ~1-3s after load
         except Exception as e:
-            print(f"[eightfold] Playwright: failed to load {careers_url}: {e}")
+            logger.error(f"Playwright: failed to load {careers_url}: {e}")
             await browser.close()
             return []
 
@@ -241,13 +258,13 @@ async def _fetch_jobs_playwright(
                     "num": num, "start": start,
                 }, timeout=PLAYWRIGHT_PAGE_TIMEOUT_MS)
                 if not resp.ok:
-                    print(f"[eightfold] Playwright: search API returned {resp.status} for {domain}")
+                    logger.error(f"Playwright: search API returned {resp.status} for {domain}")
                     break
                 payload = (await resp.json()).get("data", {})
                 positions = payload.get("positions", [])
                 total = payload.get("count", 0)
             except Exception as e:
-                print(f"[eightfold] Playwright: stub fetch failed for {domain}: {e}")
+                logger.error(f"Playwright: stub fetch failed for {domain}: {e}")
                 break
             for pos in positions:
                 stubs.append({
@@ -262,12 +279,24 @@ async def _fetch_jobs_playwright(
                 break
 
         # Phase 2: filter, then fetch descriptions for new jobs only
+        is_debug = logger.isEnabledFor(logging.DEBUG)
+        debug_fetched: list[str] = []
+        debug_blocked: list[tuple[str, str]] = []
+        debug_kept: list[str] = []
+
         results = []
         for stub in stubs:
             if stub["url"] in seen_urls:
                 continue
-            if not passes_local_filter(stub["title"], allowlist, blocklist):
+            title = stub["title"]
+            if is_debug:
+                debug_fetched.append(title)
+            if not passes_local_filter(title, allowlist, blocklist):
+                if is_debug:
+                    debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
                 continue
+            if is_debug:
+                debug_kept.append(title)
             job_id = stub.pop("id")
             try:
                 resp = await context.request.get(detail_url, params={
@@ -279,10 +308,12 @@ async def _fetch_jobs_playwright(
                 else:
                     stub["content"] = ""
             except Exception as e:
-                print(f"[eightfold] Playwright: content fetch failed for job {job_id}: {e}")
+                logger.error(f"Playwright: content fetch failed for job {job_id}: {e}")
                 stub["content"] = ""
             results.append(stub)
 
+        if is_debug:
+            log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept)
         await browser.close()
 
     return results

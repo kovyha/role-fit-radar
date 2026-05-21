@@ -5,13 +5,16 @@
 
 import html as html_lib
 import asyncio
+import logging
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 from config import (
     JOB_CONTENT_MAX_CHARS, PLAYWRIGHT_PAGE_TIMEOUT_MS,
     TITLE_TERMS, TITLE_BLOCKLIST,
 )
-from sources.filters import passes_local_filter
+from sources.filters import passes_local_filter, explain_filter_result, log_filter_debug
+
+logger = logging.getLogger(__name__.rsplit(".", 1)[-1])
 
 _USER_AGENT = (
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
@@ -65,17 +68,17 @@ async def _fetch_jobs_async(
         try:
             await page.goto(careers_url, wait_until="load", timeout=PLAYWRIGHT_PAGE_TIMEOUT_MS)
         except Exception as e:
-            print(f"[oracle_hcm] Failed to load {careers_url}: {e}")
+            logger.error(f"Failed to load {careers_url}: {e}")
             await browser.close()
             return []
 
         # Phase 0: discover location ID from facets (same API the SPA calls on load)
         location_id = await _discover_location_id(context, list_url, site, location_filter)
         if not location_id:
-            print(f"[oracle_hcm] No location found for '{location_filter}'")
+            logger.warning(f"No location found for '{location_filter}'")
             await browser.close()
             return []
-        print(f"[oracle_hcm] '{location_filter}' → location ID {location_id}")
+        logger.info(f"'{location_filter}' → location ID {location_id}")
 
         # Phase 1: paginate stubs
         stubs  = []
@@ -94,11 +97,11 @@ async def _fetch_jobs_async(
                     "finder":   finder,
                 }, timeout=PLAYWRIGHT_PAGE_TIMEOUT_MS)
                 if not resp.ok:
-                    print(f"[oracle_hcm] List API returned {resp.status}")
+                    logger.error(f"List API returned {resp.status}")
                     break
                 data = await resp.json()
             except Exception as e:
-                print(f"[oracle_hcm] Stub fetch failed (offset={offset}): {e}")
+                logger.error(f"Stub fetch failed (offset={offset}): {e}")
                 break
 
             first     = (data.get("items") or [{}])[0]
@@ -119,15 +122,27 @@ async def _fetch_jobs_async(
             if offset >= total or not page_jobs:
                 break
 
-        print(f"[oracle_hcm] {len(stubs)} stubs for '{location_filter}'")
+        logger.info(f"{len(stubs)} stubs for '{location_filter}'")
 
         # Phase 2: filter then fetch descriptions for new jobs only
+        is_debug = logger.isEnabledFor(logging.DEBUG)
+        debug_fetched: list[str] = []
+        debug_blocked: list[tuple[str, str]] = []
+        debug_kept: list[str] = []
+
         results = []
         for stub in stubs:
             if stub["url"] in seen_urls:
                 continue
-            if not passes_local_filter(stub["title"], allowlist, blocklist):
+            title = stub["title"]
+            if is_debug:
+                debug_fetched.append(title)
+            if not passes_local_filter(title, allowlist, blocklist):
+                if is_debug:
+                    debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
                 continue
+            if is_debug:
+                debug_kept.append(title)
             req_id = stub.pop("id")
             try:
                 resp = await context.request.get(detail_url, params={
@@ -137,10 +152,12 @@ async def _fetch_jobs_async(
                 }, timeout=PLAYWRIGHT_PAGE_TIMEOUT_MS)
                 stub["content"] = _extract_content(await resp.json()) if resp.ok else ""
             except Exception as e:
-                print(f"[oracle_hcm] Content fetch failed for {req_id}: {e}")
+                logger.error(f"Content fetch failed for {req_id}: {e}")
                 stub["content"] = ""
             results.append(stub)
 
+        if is_debug:
+            log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept)
         await browser.close()
 
     return results
@@ -174,7 +191,7 @@ async def _discover_location_id(context, list_url: str, site: str, location_filt
         return None
     candidates.sort()   # fewest parts first → most general city-level parent
     chosen = candidates[0]
-    print(f"[oracle_hcm] Matched facet: '{chosen[2]}' (ID {chosen[1]})")
+    logger.info(f"Matched facet: '{chosen[2]}' (ID {chosen[1]})")
     return chosen[1]
 
 

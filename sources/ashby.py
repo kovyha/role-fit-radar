@@ -2,9 +2,12 @@
 # Fetches jobs from the Ashby public job board API.
 # No authentication required. One request returns all jobs with descriptions inline.
 
+import logging
 import requests
 from config import JOB_CONTENT_MAX_CHARS, REQUEST_TIMEOUT_SECS, TITLE_TERMS, TITLE_BLOCKLIST
-from sources.filters import passes_local_filter
+from sources.filters import passes_local_filter, explain_filter_result, log_filter_debug
+
+logger = logging.getLogger(__name__.rsplit(".", 1)[-1])
 
 
 ASHBY_API = "https://api.ashbyhq.com/posting-api/job-board/{org}"
@@ -34,17 +37,29 @@ def fetch_jobs(org: str, location_filter: str, seen_urls: set | None = None, *, 
         response = requests.get(url, timeout=REQUEST_TIMEOUT_SECS)
         response.raise_for_status()
     except requests.RequestException as e:
-        print(f"[ashby] Failed to fetch {url}: {e}")
+        logger.error(f"Failed to fetch {url}: {e}")
         return []
 
     jobs = response.json().get("jobs", [])
+
+    is_debug = logger.isEnabledFor(logging.DEBUG)
+    debug_fetched: list[str] = []
+    debug_blocked: list[tuple[str, str]] = []
+    debug_kept: list[str] = []
 
     results = []
     for job in jobs:
         if not _matches_location(job, location_filter):
             continue
-        if not passes_local_filter(job.get("title", ""), allowlist, blocklist):
+        title = job.get("title", "")
+        if is_debug:
+            debug_fetched.append(title)
+        if not passes_local_filter(title, allowlist, blocklist):
+            if is_debug:
+                debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
             continue
+        if is_debug:
+            debug_kept.append(title)
 
         job_url = job.get("jobUrl", "")
         if job_url in seen_urls:
@@ -53,13 +68,15 @@ def fetch_jobs(org: str, location_filter: str, seen_urls: set | None = None, *, 
         content = job.get("descriptionPlain", "") or ""
 
         results.append({
-            "title":      job.get("title", ""),
+            "title":      title,
             "url":        job_url,
             "location":   job.get("location", ""),
             "department": job.get("department", ""),
             "content":    content[:JOB_CONTENT_MAX_CHARS],
         })
 
+    if is_debug:
+        log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept)
     return results
 
 
