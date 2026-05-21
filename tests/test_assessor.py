@@ -99,3 +99,27 @@ def test_returns_failure_dict_on_bad_json(mock_anthropic_cls):
 
     assert result["fit_score"] == 0
     assert result["recommendation"] == "Manual review needed"
+
+
+@patch("assessor.anthropic.Anthropic")
+def test_ai_role_hint_injected(mock_anthropic_cls):
+    mock_anthropic_cls.return_value = _make_mock_client(json.dumps(VALID_RESPONSE))
+
+    from assessor import assess_fit
+    ai_job = {**SAMPLE_JOB, "title": "Senior AI Engineer"}
+    assess_fit(ai_job, SAMPLE_PROFILE)
+
+    prompt = mock_anthropic_cls.return_value.messages.create.call_args.kwargs["messages"][0]["content"]
+    assert "ASSESSMENT NOTE" in prompt
+    assert "financial industry background" in prompt
+
+
+@patch("assessor.anthropic.Anthropic")
+def test_non_ai_role_no_hint(mock_anthropic_cls):
+    mock_anthropic_cls.return_value = _make_mock_client(json.dumps(VALID_RESPONSE))
+
+    from assessor import assess_fit
+    assess_fit(SAMPLE_JOB, SAMPLE_PROFILE)
+
+    prompt = mock_anthropic_cls.return_value.messages.create.call_args.kwargs["messages"][0]["content"]
+    assert "ASSESSMENT NOTE" not in prompt

@@ -76,12 +76,12 @@ COMPANIES = [
     #  "local_allowlist": TITLE_TERMS, "local_blocklist": TITLE_BLOCKLIST},
 
     # Oracle HCM Cloud (requires Playwright session for location filtering):
-    # {"name": "JPMorgan", "source": "oracle_hcm",
-    #  "host": "jpmc.fa.oraclecloud.com", "site": "CX_1001",
+    # {"name": "Acme Bank", "source": "oracle_hcm",
+    #  "host": "acme.fa.oraclecloud.com", "site": "CX_1001",
     #  "local_allowlist": TITLE_TERMS, "local_blocklist": TITLE_BLOCKLIST},
 
-    # Goldman Sachs (higher.gs.com — custom GraphQL API, no tenant/board params needed):
-    # {"name": "Goldman Sachs", "source": "higher",
+    # Higher (custom GraphQL API, no tenant/board params needed):
+    # {"name": "Acme Corp", "source": "higher",
     #  "local_allowlist": TITLE_TERMS, "local_blocklist": TITLE_BLOCKLIST},
 
     # LinkedIn job alert emails (requires Gmail IMAP + LinkedIn job alert setup):
@@ -139,6 +139,20 @@ LINKEDIN_TITLE_SUFFIXES = [
 
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 ASSESSOR_MAX_TOKENS = 500
+
+# Keyword-triggered hints injected into the assessor prompt.
+# Each entry is (list_of_keywords, hint_text). If any keyword in the list
+# appears in the job title (case-insensitive substring match), the hint is
+# appended to the prompt before assessment. Use this to guide the model when
+# certain role types should be evaluated differently — e.g. suppressing a
+# perceived "gap" that does not actually apply to that type of role.
+KEYWORD_ASSESS_HINTS: list[tuple[list[str], str]] = [
+    # Example: tell the model not to flag a missing domain as a gap for specialist roles.
+    # (
+    #     ["keyword1", "keyword2"],
+    #     "This is a <role-type> role. Focus on <relevant criteria> only.",
+    # ),
+]
 
 JOB_CONTENT_MAX_CHARS = 6000
 REQUEST_TIMEOUT_SECS = 15

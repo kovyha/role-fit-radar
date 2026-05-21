@@ -5,7 +5,7 @@
 import os
 import json
 import anthropic
-from config import CLAUDE_MODEL, ASSESSOR_MAX_TOKENS
+from config import CLAUDE_MODEL, ASSESSOR_MAX_TOKENS, KEYWORD_ASSESS_HINTS
 
 
 def assess_fit(job: dict, profile: str) -> dict:
@@ -21,8 +21,16 @@ def assess_fit(job: dict, profile: str) -> dict:
     """
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
+    title_lower = job["title"].lower()
+    hints = [
+        hint
+        for keywords, hint in KEYWORD_ASSESS_HINTS
+        if any(kw in title_lower for kw in keywords)
+    ]
+    hint_block = ("\n\nASSESSMENT NOTE: " + " ".join(hints)) if hints else ""
+
     prompt = f"""You are assessing the fit between a candidate profile and a job description.
-Be direct and adversarial — surface real gaps, not just positives. Do not pad.
+Be direct and adversarial — surface real gaps, not just positives. Do not pad.{hint_block}
 
 Read the complete career history in the candidate profile. Draw on ALL listed roles when assessing strengths — recent roles reflect current scope but earlier roles may contain the deepest domain expertise.
 
