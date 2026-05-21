@@ -22,12 +22,17 @@ TECH_TERMS = frozenset([
 ])
 
 # Titles containing any of these are rejected even if they match an allowlist.
+# Plain terms match as substrings anywhere in the title (e.g. "junior" blocks "Junior Developer").
+# Glob-wrapped terms (e.g. "*term4*") use embedded-only matching: blocked only when the term
+# appears inside a larger word (e.g. "financial"), not when it stands alone (e.g. "Term4 Engineer").
+# Use glob-wrapping for short acronyms that would otherwise cause false positives.
 TITLE_BLOCKLIST = frozenset([
     "recruiter",
     "relocation",
     "junior",
     "intern",
     "graduate",
+    "*term4*",  # example: blocks 'unterm4ed' but not 'Term4 Engineer'
 ])
 
 # ── Company / source registry ─────────────────────────────────────────────────
