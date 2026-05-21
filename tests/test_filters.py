@@ -30,6 +30,18 @@ class TestAllowlist:
         """Title with no allowlist term is rejected."""
         assert passes_local_filter("Marketing Manager", allow(["trading", "quant"]), block([])) is False
 
+    def test_multiple_terms_first_match_suffices(self):
+        """Only one allowlist term needs to be present — first term matches."""
+        assert passes_local_filter("Quant Analyst", allow(["quant", "trader"]), block([])) is True
+
+    def test_multiple_terms_later_match_suffices(self):
+        """Only one allowlist term needs to be present — later term matches."""
+        assert passes_local_filter("Trading Analyst", allow(["quant", "trading"]), block([])) is True
+
+    def test_plain_term_matches_within_longer_word(self):
+        """Plain allowlist term is a dumb substring match — passes even inside a longer word."""
+        assert passes_local_filter("Quantitative Analyst", allow(["quant"]), block([])) is True
+
 
 # ---------------------------------------------------------------------------
 # Blocklist — plain (substring) behaviour
@@ -43,6 +55,22 @@ class TestBlocklistPlain:
     def test_plain_blocklist_no_match_passes(self):
         """Title not containing the plain blocklist term is not blocked."""
         assert passes_local_filter("Quant Developer", allow([]), block(["junior"])) is True
+
+    def test_plain_blocklist_blocks_substring_within_word(self):
+        """Plain (non-glob) term blocks even when embedded inside a longer word — contrast with glob."""
+        assert passes_local_filter("Quantitative Analyst", allow([]), block(["quant"])) is False
+
+    def test_multiple_terms_first_triggers(self):
+        """Blocked when the first of multiple blocklist terms matches."""
+        assert passes_local_filter("Junior Analyst", allow([]), block(["junior", "intern"])) is False
+
+    def test_multiple_terms_second_triggers(self):
+        """Blocked when a later blocklist term matches, not just the first."""
+        assert passes_local_filter("Quant Intern", allow([]), block(["junior", "intern"])) is False
+
+    def test_multiple_terms_none_match_passes(self):
+        """Not blocked when none of multiple blocklist terms is present."""
+        assert passes_local_filter("Quant Analyst", allow([]), block(["junior", "intern"])) is True
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +109,26 @@ class TestBlocklistGlob:
     def test_glob_ai_head_of_ai_passes(self):
         """'*ai*' does NOT block 'Head of AI' — 'ai' is standalone at end of title."""
         assert passes_local_filter("Head of AI", allow([]), block(["*ai*"])) is True
+
+    def test_glob_standalone_at_title_start_passes(self):
+        """'*ai*' does NOT block when 'ai' is standalone at the start of the title."""
+        assert passes_local_filter("AI Quant Developer", allow([]), block(["*ai*"])) is True
+
+    def test_glob_standalone_in_title_middle_passes(self):
+        """'*ai*' does NOT block when 'ai' is standalone in the middle of the title."""
+        assert passes_local_filter("Senior AI Researcher", allow([]), block(["*ai*"])) is True
+
+    def test_glob_both_standalone_and_embedded_standalone_wins(self):
+        """When 'ai' appears standalone AND embedded in the same title, standalone presence passes."""
+        assert passes_local_filter("AI Financial Analyst", allow([]), block(["*ai*"])) is True
+
+    def test_glob_case_insensitive_blocks_embedded(self):
+        """Title is lowercased internally — uppercase embedded occurrence is still blocked."""
+        assert passes_local_filter("RETAIL MANAGER", allow([]), block(["*ai*"])) is False
+
+    def test_glob_case_insensitive_passes_standalone(self):
+        """Title is lowercased internally — uppercase standalone occurrence still passes."""
+        assert passes_local_filter("AI ENGINEER", allow([]), block(["*ai*"])) is True
 
 
 # ---------------------------------------------------------------------------
