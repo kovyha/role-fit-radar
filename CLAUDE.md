@@ -47,7 +47,7 @@ Coverage gate is 90% and is configurable via `fail_under` in `pyproject.toml`. R
 
 ### Before any commit or push
 
-Spawn the `pre-commit` subagent immediately after staging files — no intermediate commands, no summary to the user first. Only proceed to ask the user for commit approval if it reports **Overall: PASS**.
+Spawn the `pre-commit` subagent immediately after staging files — no intermediate commands, no summary to the user first. Only proceed to ask the user for commit and push approval if it reports **Overall: PASS**. On approval, commit locally and then push to remote in the same step.
 
 ```
 Agent(subagent_type="pre-commit", prompt="Run the pre-commit checklist.")
