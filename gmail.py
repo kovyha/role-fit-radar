@@ -5,12 +5,44 @@
 
 import os
 import smtplib
+import urllib.parse
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from collections import Counter
 from datetime import date
 
-from config import EMAIL_SENDER, EMAIL_RECIPIENT
+from config import CV_AI_KEYWORDS, CV_QUANT_KEYWORDS, CV_VARIANTS, EMAIL_RECIPIENT, EMAIL_SENDER
+
+
+def _select_cv_variant(job: dict) -> str:
+    """Pick the most relevant CV variant based on keywords in the job."""
+    text = " ".join([
+        job.get("title", ""),
+        job.get("department", ""),
+        job.get("content", ""),
+    ]).lower()
+    if CV_AI_KEYWORDS and any(kw in text for kw in CV_AI_KEYWORDS):
+        return "ai" if "ai" in CV_VARIANTS else "main"
+    if CV_QUANT_KEYWORDS and any(kw in text for kw in CV_QUANT_KEYWORDS):
+        return "quant" if "quant" in CV_VARIANTS else "main"
+    return "main"
+
+
+def _ask_ai_url(job: dict, variant_key: str) -> str:
+    """Build a claude.ai/new URL with the job context pre-filled as the opening prompt."""
+    cv_file = CV_VARIANTS[variant_key]
+    prompt = (
+        f"I'm preparing my application for the following role and need your help.\n\n"
+        f"Please fetch and read my CV from Google Drive: **{cv_file}**\n\n"
+        f"Once you have it, help me with whatever I ask next (cover letter, fit assessment, "
+        f"interview prep, etc.).\n\n"
+        f"---\n"
+        f"JOB TITLE: {job.get('title', '')}\n"
+        f"COMPANY: {job.get('company', '')}\n"
+        f"LOCATION: {job.get('location', '')}\n\n"
+        f"JOB DESCRIPTION:\n{job.get('content', '')}"
+    )
+    return f"https://claude.ai/new?q={urllib.parse.quote(prompt)}"
 
 
 def send_summary(jobs: list[dict], pending_companies: list[dict] | None = None) -> None:
@@ -135,10 +167,27 @@ def _build_html(jobs: list[dict], pending_companies: list[dict] | None = None) -
                 f' &nbsp;<a href="{sheet_url}" style="font-size:11px;color:#888;">sheet ↗</a>'
                 if sheet_url and recommendation == "Apply" else ""
             )
+
+            ask_ai_html = ""
+            if recommendation in ("Apply", "Maybe"):
+                auto_key = _select_cv_variant(job)
+                auto_label = {"main": "main CV", "ai": "AI CV", "quant": "quant CV"}[auto_key]
+                override_keys = [k for k in CV_VARIANTS if k != auto_key]
+                override_links = " · ".join(
+                    f'<a href="{_ask_ai_url(job, k)}" style="color:#888;">{k}</a>'
+                    for k in override_keys
+                )
+                ask_ai_html = (
+                    f'&nbsp;&nbsp;<a href="{_ask_ai_url(job, auto_key)}" '
+                    f'style="font-size:11px;background:#6200ea;color:#fff;padding:2px 7px;'
+                    f'border-radius:3px;text-decoration:none;">Ask AI ({auto_label}) ↗</a>'
+                    f'&nbsp;<small style="color:#aaa;">or: {override_links}</small>'
+                )
+
             rows += f"""
         <tr>
             <td style="padding:8px;border-bottom:1px solid #eee;">
-                <a href="{job.get('url', '')}" style="font-weight:bold;color:#1a1a1a;">{job.get('title', '')}</a>{sheet_link}<br>
+                <a href="{job.get('url', '')}" style="font-weight:bold;color:#1a1a1a;">{job.get('title', '')}</a>{sheet_link}{ask_ai_html}<br>
                 <small style="color:#666;">{job.get('company', '')} · {job.get('department', '')} · {job.get('location', '')} · {job.get('source', '')}</small>
             </td>
             <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">

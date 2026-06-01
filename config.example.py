@@ -142,6 +142,29 @@ LINKEDIN_TITLE_SUFFIXES = [
     "Be an early applicant",
 ]
 
+# ── Ask AI — CV variant routing ──────────────────────────────────────────────
+# CV_VARIANTS maps a short key to the exact Google Drive filename for each CV.
+# CV_AI_KEYWORDS / CV_QUANT_KEYWORDS are matched (case-insensitive substring)
+# against the combined title + department + content of a job to auto-select the
+# most relevant variant. AI keywords are checked first; quant second; "main" is
+# the fallback.
+CV_VARIANTS = {
+    "main":  "Your_CV.docx",
+    # Add more variants if you have role-specific CV versions, e.g.:
+    # "ai":    "Your_CV_AI.docx",
+    # "quant": "Your_CV_Quant.docx",
+}
+
+CV_AI_KEYWORDS: set[str] = {
+    # Lowercase substrings that signal an AI/ML-focused role, e.g.:
+    # "machine learning", "llm", "deep learning",
+}
+
+CV_QUANT_KEYWORDS: set[str] = {
+    # Lowercase substrings that signal a quant/research role, e.g.:
+    # "quant", "derivatives", "monte carlo",
+}
+
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 ASSESSOR_MAX_TOKENS = 500
 
