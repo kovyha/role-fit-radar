@@ -124,3 +124,17 @@ def test_non_ai_role_no_hint(mock_client):
 
     prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
     assert "ASSESSMENT NOTE" not in prompt
+
+
+@patch("assessor._client")
+def test_prompt_contains_required_quals_rubric(mock_client):
+    mock_client.messages.create.return_value = _make_mock_response(json.dumps(VALID_RESPONSE))
+
+    from assessor import assess_fit
+    assess_fit(SAMPLE_JOB, SAMPLE_PROFILE)
+
+    prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
+    assert "SCORING RUBRIC" in prompt, "Required-quals rubric block missing from prompt"
+    assert "unmet required qualification" in prompt.lower(), "Cap rule for unmet required quals missing"
+    assert "cap fit_score at 6" in prompt, "Single-miss cap (6) missing from rubric"
+    assert "cap fit_score at 4" in prompt, "Double-miss cap (4) missing from rubric"

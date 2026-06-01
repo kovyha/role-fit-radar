@@ -49,6 +49,12 @@ LOCATION: {job['location']}
 JOB DESCRIPTION:
 {job['content']}
 
+SCORING RUBRIC:
+1. Before scoring, identify all qualifications labeled Required, Must Have, Minimum Qualifications, or equivalent hard-requirement language.
+2. One unmet required qualification: cap fit_score at 6. Two or more unmet required qualifications: cap fit_score at 4.
+3. Preferred, Nice-to-Have, or Plus qualifications carry less weight — gaps there do not trigger the cap.
+4. Call out any unmet required qualifications explicitly at the start of key_gaps.
+
 Use exactly this structure:
 {{
   "fit_score": <integer 1-10>,
