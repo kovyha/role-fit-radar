@@ -233,6 +233,10 @@ def _print_assessment(name: str, result: dict) -> None:
     print(sep)
     print(f"  Fit Score  : {result.get('fit_score', '?')}/10")
     print(f"  Recommend  : {result.get('recommendation', '?')}")
+    unmet = result.get("unmet_required_quals", [])
+    if unmet:
+        for q in unmet:
+            print(f"  Unmet Req  : {q}")
     print(f"  Strengths  : {result.get('key_strengths', '')}")
     print(f"  Gaps       : {result.get('key_gaps', '')}")
     print(f"  Reasoning  : {result.get('reasoning', '')}")

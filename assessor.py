@@ -6,7 +6,7 @@ import os
 import json
 import logging
 import anthropic
-from config import CLAUDE_MODEL, ASSESSOR_MAX_TOKENS, KEYWORD_ASSESS_HINTS
+from config import CLAUDE_MODEL, ASSESSOR_MAX_TOKENS, KEYWORD_ASSESS_HINTS, UNMET_REQUIRED_SCORE_CAPS
 
 _client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
 
@@ -50,13 +50,15 @@ JOB DESCRIPTION:
 {job['content']}
 
 SCORING RUBRIC:
-1. Before scoring, identify all qualifications labeled Required, Must Have, Minimum Qualifications, or equivalent hard-requirement language.
-2. One unmet required qualification: cap fit_score at 6. Two or more unmet required qualifications: cap fit_score at 4.
-3. Preferred, Nice-to-Have, or Plus qualifications carry less weight — gaps there do not trigger the cap.
-4. Call out any unmet required qualifications explicitly at the start of key_gaps.
+1. Identify all qualifications labeled Required, Must Have, Minimum Qualifications, or equivalent hard-requirement language.
+2. For each required qualification, decide whether the candidate meets it. List every unmet one verbatim in "unmet_required_quals".
+3. Preferred, Nice-to-Have, or Plus qualifications do not belong in "unmet_required_quals".
+4. Set fit_score freely based on overall fit, then it will be capped externally: 1 unmet → max 6, 2+ unmet → max 4.
+5. Call out any unmet required qualifications explicitly at the start of key_gaps.
 
 Use exactly this structure:
 {{
+  "unmet_required_quals": ["<verbatim required qualification that is unmet>", ...],
   "fit_score": <integer 1-10>,
   "key_strengths": "<2-3 sentences on strongest matches>",
   "key_gaps": "<2-3 sentences on most significant gaps or risks>",
@@ -81,7 +83,14 @@ Use exactly this structure:
                 raw = raw[4:]
             raw = raw.strip()
 
-        return json.loads(raw)
+        result = json.loads(raw)
+
+        unmet = result.get("unmet_required_quals", [])
+        n = min(len(unmet), max(UNMET_REQUIRED_SCORE_CAPS))
+        if n in UNMET_REQUIRED_SCORE_CAPS:
+            result["fit_score"] = min(result.get("fit_score", 0), UNMET_REQUIRED_SCORE_CAPS[n])
+
+        return result
 
     except Exception as e:
         logging.getLogger(__name__).error("[assessor] Failed to assess %s: %s", job['title'], e)

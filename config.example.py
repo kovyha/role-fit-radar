@@ -168,6 +168,10 @@ CV_QUANT_KEYWORDS: set[str] = {
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 ASSESSOR_MAX_TOKENS = 500
 
+# Score caps applied when the model identifies unmet required qualifications.
+# Key = number of unmet required quals, value = maximum allowed fit_score.
+UNMET_REQUIRED_SCORE_CAPS: dict[int, int] = {1: 6, 2: 4}
+
 # Keyword-triggered hints injected into the assessor prompt.
 # Each entry is (list_of_keywords, hint_text). If any keyword in the list
 # appears in the job title (case-insensitive substring match), the hint is

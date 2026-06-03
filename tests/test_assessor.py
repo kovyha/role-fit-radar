@@ -19,6 +19,7 @@ SAMPLE_JOB = {
 }
 
 VALID_RESPONSE = {
+    "unmet_required_quals": [],
     "fit_score": 9,
     "key_strengths": "18 years in algo execution. Production VWAP and ML models at Credit Suisse.",
     "key_gaps": "No pure alpha research background.",
@@ -135,6 +136,44 @@ def test_prompt_contains_required_quals_rubric(mock_client):
 
     prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
     assert "SCORING RUBRIC" in prompt, "Required-quals rubric block missing from prompt"
-    assert "unmet required qualification" in prompt.lower(), "Cap rule for unmet required quals missing"
-    assert "cap fit_score at 6" in prompt, "Single-miss cap (6) missing from rubric"
-    assert "cap fit_score at 4" in prompt, "Double-miss cap (4) missing from rubric"
+    assert "unmet_required_quals" in prompt, "unmet_required_quals field missing from rubric"
+    assert "1 unmet" in prompt, "Single-miss cap reference missing from rubric"
+    assert "2+ unmet" in prompt, "Double-miss cap reference missing from rubric"
+
+
+@patch("assessor._client")
+def test_cap_enforced_one_unmet(mock_client):
+    response = {**VALID_RESPONSE, "unmet_required_quals": ["Must have C++ experience"], "fit_score": 8}
+    mock_client.messages.create.return_value = _make_mock_response(json.dumps(response))
+
+    from assessor import assess_fit
+    result = assess_fit(SAMPLE_JOB, SAMPLE_PROFILE)
+
+    assert result["fit_score"] == 6, "Score should be capped at 6 for one unmet required qual"
+    assert result["unmet_required_quals"] == ["Must have C++ experience"]
+
+
+@patch("assessor._client")
+def test_cap_enforced_two_unmet(mock_client):
+    response = {
+        **VALID_RESPONSE,
+        "unmet_required_quals": ["Must have C++ experience", "Fixed-income domain required"],
+        "fit_score": 7,
+    }
+    mock_client.messages.create.return_value = _make_mock_response(json.dumps(response))
+
+    from assessor import assess_fit
+    result = assess_fit(SAMPLE_JOB, SAMPLE_PROFILE)
+
+    assert result["fit_score"] == 4, "Score should be capped at 4 for two+ unmet required quals"
+
+
+@patch("assessor._client")
+def test_no_cap_when_no_unmet(mock_client):
+    response = {**VALID_RESPONSE, "unmet_required_quals": [], "fit_score": 9}
+    mock_client.messages.create.return_value = _make_mock_response(json.dumps(response))
+
+    from assessor import assess_fit
+    result = assess_fit(SAMPLE_JOB, SAMPLE_PROFILE)
+
+    assert result["fit_score"] == 9, "Score should be unchanged when no unmet required quals"
