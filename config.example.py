@@ -79,6 +79,9 @@ COMPANIES = [
     # Workday:
     # {"name": "Acme Corp", "source": "workday", "tenant": "acme", "board": "Acme_Professional",
     #  "local_allowlist": TITLE_TERMS, "local_blocklist": TITLE_BLOCKLIST},
+    # Optional: add "wd": "wd3" when the company's subdomain is wd3 (check their careers URL).
+    # Optional: add "location_aliases": ["canary wharf"] to also match locations whose
+    #  Workday facet descriptor does not contain the primary LOCATION_FILTER string.
 
     # Oracle HCM Cloud (requires Playwright session for location filtering):
     # {"name": "Acme Bank", "source": "oracle_hcm",

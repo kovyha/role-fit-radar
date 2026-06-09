@@ -17,9 +17,9 @@ from config import CV_AI_KEYWORDS, CV_QUANT_KEYWORDS, CV_VARIANTS, EMAIL_RECIPIE
 def _select_cv_variant(job: dict) -> str:
     """Pick the most relevant CV variant based on keywords in the job."""
     text = " ".join([
-        job.get("title", ""),
-        job.get("department", ""),
-        job.get("content", ""),
+        job.get("title") or "",
+        job.get("department") or "",
+        job.get("content") or "",
     ]).lower()
     if CV_AI_KEYWORDS and any(kw in text for kw in CV_AI_KEYWORDS):
         return "ai" if "ai" in CV_VARIANTS else "main"
@@ -178,7 +178,7 @@ def _build_html(jobs: list[dict], pending_companies: list[dict] | None = None) -
                     for k in override_keys
                 )
                 ask_ai_html = (
-                    f'&nbsp;&nbsp;<a href="{_ask_ai_url(job, auto_key)}" '
+                    f'<br><a href="{_ask_ai_url(job, auto_key)}" '
                     f'style="font-size:11px;background:#6200ea;color:#fff;padding:2px 7px;'
                     f'border-radius:3px;text-decoration:none;">Ask AI ({auto_label}) ↗</a>'
                     f'&nbsp;<small style="color:#aaa;">or: {override_links}</small>'
@@ -187,14 +187,14 @@ def _build_html(jobs: list[dict], pending_companies: list[dict] | None = None) -
             rows += f"""
         <tr>
             <td style="padding:8px;border-bottom:1px solid #eee;">
-                <a href="{job.get('url', '')}" style="font-weight:bold;color:#1a1a1a;">{job.get('title', '')}</a>{sheet_link}{ask_ai_html}<br>
+                <a href="{job.get('url', '')}" style="font-weight:bold;color:#1a1a1a;">{job.get('title', '')}</a>{sheet_link}<br>
                 <small style="color:#666;">{job.get('company', '')} · {job.get('department', '')} · {job.get('location', '')} · {job.get('source', '')}</small>
             </td>
             <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">
                 <strong>{job.get('fit_score', '')}/10</strong>
             </td>
             <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;color:{colour};">
-                <strong>{recommendation}</strong>
+                <strong>{recommendation}</strong>{ask_ai_html}
             </td>
             <td style="padding:8px;border-bottom:1px solid #eee;font-size:13px;">
                 <strong>Strengths:</strong> {job.get('key_strengths', '')}<br><br>

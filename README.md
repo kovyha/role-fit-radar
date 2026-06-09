@@ -91,6 +91,8 @@ In `config.py`, add to the `COMPANIES` list:
 
 The `"wd"` key is optional and defaults to `"wd1"`. Set it to `"wd3"` (or `"wd5"`) when the company's Workday subdomain differs — check the company's careers URL to determine which subdomain they use.
 
+The `"location_aliases"` key is an optional list of extra location strings to union with the primary `LOCATION_FILTER` when discovering Workday facet IDs. Use it when a company posts roles under a campus or district name that does not contain your primary city string (e.g. `"location_aliases": ["canary wharf"]` for a firm whose London postings appear under "Canary Wharf, 1 Churchill Place").
+
 ---
 
 ## Manual run
