@@ -4,6 +4,7 @@ from sources.workday import fetch_jobs, _discover_location_ids, _fetch_content, 
 
 _LONDON_ID_A = "131d7f8fcf9f01c8d6145e57f75064cd"
 _LONDON_ID_B = "131d7f8fcf9f013542e48f95f7503fcf"
+_CANARY_WHARF_ID = "canary-wharf-id-001"
 
 # Real Workday nested facet format (BlackRock / Barclays pattern):
 # locationMainGroup → values[].facetParameter="locations" → values[].{id, descriptor}
@@ -20,6 +21,7 @@ _FACETS_RESPONSE = {
                     "values": [
                         {"descriptor": "London, Greater London", "id": _LONDON_ID_A, "count": 39},
                         {"descriptor": "LO9-London - Drapers Gardens", "id": _LONDON_ID_B, "count": 5},
+                        {"descriptor": "Canary Wharf, 1 Churchill Place", "id": _CANARY_WHARF_ID, "count": 106},
                         {"descriptor": "Paris, France", "id": "paris-id", "count": 12},
                     ],
                 }
@@ -213,6 +215,39 @@ class TestFetchJobs:
 
         assert mock_sleep.call_count == 3
 
+    def test_location_aliases_passed_to_discovery(self):
+        """location_aliases from company config are forwarded to _discover_location_ids."""
+        posting = _posting("Electronic Trading Developer", "/job/CanaryWharf/ETD_R010")
+        # Facet response where only the alias matches (no "London" descriptor)
+        alias_only_facets = {
+            "total": 1,
+            "jobPostings": [posting],
+            "facets": [{
+                "facetParameter": "locationMainGroup",
+                "values": [{
+                    "facetParameter": "locations",
+                    "descriptor": "Locations",
+                    "values": [
+                        {"descriptor": "Canary Wharf, 1 Churchill Place", "id": _CANARY_WHARF_ID, "count": 106},
+                        {"descriptor": "Paris, France", "id": "paris-id", "count": 5},
+                    ],
+                }],
+            }],
+        }
+        stubs = _stubs_page([posting], total=1)
+        detail = _get_mock("Electronic trading role.")
+
+        with patch("requests.post", side_effect=[_post_mock(alias_only_facets), stubs]), \
+             patch("requests.get", return_value=detail), \
+             patch("sources.workday.time.sleep"):
+            jobs = fetch_jobs(
+                "barclays", "External_Career_Site_Barclays", "London",
+                wd="wd3", location_aliases=["canary wharf"]
+            )
+
+        assert len(jobs) == 1
+        assert jobs[0]["title"] == "Electronic Trading Developer"
+
 
 class TestDiscoverLocationIds:
     def test_nested_pattern_returns_matching_ids(self):
@@ -222,7 +257,30 @@ class TestDiscoverLocationIds:
         assert facet_key == "locations"
         assert _LONDON_ID_A in ids
         assert _LONDON_ID_B in ids
+        assert _CANARY_WHARF_ID not in ids  # alias not provided — Canary Wharf excluded
         assert "paris-id" not in ids
+
+    def test_location_alias_unions_with_primary(self):
+        """location_aliases extends the match: Canary Wharf included alongside London."""
+        with patch("requests.post", return_value=_post_mock(_FACETS_RESPONSE)):
+            facet_key, ids = _discover_location_ids(
+                "https://example.com/jobs", "London", location_aliases=["canary wharf"]
+            )
+
+        assert _LONDON_ID_A in ids
+        assert _LONDON_ID_B in ids
+        assert _CANARY_WHARF_ID in ids
+        assert "paris-id" not in ids
+
+    def test_alias_only_match(self):
+        """An alias that matches but the primary filter doesn't still returns IDs."""
+        with patch("requests.post", return_value=_post_mock(_FACETS_RESPONSE)):
+            facet_key, ids = _discover_location_ids(
+                "https://example.com/jobs", "Tokyo", location_aliases=["canary wharf"]
+            )
+
+        assert _CANARY_WHARF_ID in ids
+        assert _LONDON_ID_A not in ids
 
     def test_flat_pattern_returns_matching_ids(self):
         with patch("requests.post", return_value=_post_mock(_FLAT_FACETS_RESPONSE)):

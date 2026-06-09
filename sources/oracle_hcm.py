@@ -125,24 +125,22 @@ async def _fetch_jobs_async(
         logger.info(f"{len(stubs)} stubs for '{location_filter}'")
 
         # Phase 2: filter then fetch descriptions for new jobs only
-        is_debug = logger.isEnabledFor(logging.DEBUG)
         debug_fetched: list[str] = []
         debug_blocked: list[tuple[str, str]] = []
         debug_kept: list[str] = []
+        seen_count = 0
 
         results = []
         for stub in stubs:
             if stub["url"] in seen_urls:
+                seen_count += 1
                 continue
             title = stub["title"]
-            if is_debug:
-                debug_fetched.append(title)
+            debug_fetched.append(title)
             if not passes_local_filter(title, allowlist, blocklist):
-                if is_debug:
-                    debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
+                debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
                 continue
-            if is_debug:
-                debug_kept.append(title)
+            debug_kept.append(title)
             req_id = stub.pop("id")
             try:
                 resp = await context.request.get(detail_url, params={
@@ -156,8 +154,8 @@ async def _fetch_jobs_async(
                 stub["content"] = ""
             results.append(stub)
 
-        if is_debug:
-            log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept)
+        log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept,
+                         total=seen_count + len(debug_fetched), seen=seen_count, new=len(results))
         await browser.close()
 
     return results

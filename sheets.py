@@ -167,6 +167,7 @@ def append_jobs(jobs: list[dict]) -> list[str]:
             job.get("location", ""),
             job.get("department", ""),
             job.get("url", ""),
+            job.get("first_published") or "",
             job.get("fit_score", ""),
             job.get("key_strengths", ""),
             job.get("key_gaps", ""),

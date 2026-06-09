@@ -55,37 +55,34 @@ def fetch_jobs(board: str, location_filter: str, seen_urls: set | None = None, *
 
     # Filter by location, title relevance, and skip already-seen URLs
     candidates = []
-    is_debug = logger.isEnabledFor(logging.DEBUG)
     debug_fetched: list[str] = []
     debug_blocked: list[tuple[str, str]] = []
     debug_kept: list[str] = []
+    seen_count = 0
     for job in stubs:
         location = job.get("location", {}).get("name", "")
         if location_filter.lower() not in location.lower():
             continue
         title = job.get("title", "")
-        if is_debug:
-            debug_fetched.append(title)
+        debug_fetched.append(title)
         if not passes_local_filter(title, allowlist, blocklist):
-            if is_debug:
-                debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
+            debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
             continue
-        if is_debug:
-            debug_kept.append(title)
+        debug_kept.append(title)
         job_url = job.get("absolute_url", "")
         if job_url in seen_urls:
+            seen_count += 1
             continue
         departments = job.get("departments", [])
         department = departments[0].get("name", "Unknown") if departments else "Unknown"
         candidates.append({
-            "id":         job["id"],
-            "title":      title,
-            "url":        job_url,
-            "location":   location,
-            "department": department,
+            "id":             job["id"],
+            "title":          title,
+            "url":            job_url,
+            "location":       location,
+            "department":     department,
+            "first_published": (job.get("first_published") or "")[:10] or None,
         })
-    if is_debug:
-        log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept)
 
     # Phase 2: fetch description for each new job
     results = []
@@ -94,6 +91,8 @@ def fetch_jobs(board: str, location_filter: str, seen_urls: set | None = None, *
         job["content"] = content
         results.append(job)
 
+    log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept,
+                     total=len(debug_fetched), seen=seen_count, new=len(results))
     return results
 
 

@@ -30,7 +30,7 @@ _HEADERS = {
 _PAGE_SIZE = 20  # Workday hard-caps at 20; any higher returns null total + empty results
 
 
-def fetch_jobs(tenant: str, board: str, location_filter: str, seen_urls: set | None = None, *, wd: str = "wd1", allowlist: frozenset = TITLE_TERMS, blocklist: frozenset = TITLE_BLOCKLIST) -> list[dict]:
+def fetch_jobs(tenant: str, board: str, location_filter: str, seen_urls: set | None = None, *, wd: str = "wd1", allowlist: frozenset = TITLE_TERMS, blocklist: frozenset = TITLE_BLOCKLIST, location_aliases: list[str] | None = None) -> list[dict]:
     """
     Fetch new jobs from a Workday board, filtered by location.
 
@@ -38,11 +38,13 @@ def fetch_jobs(tenant: str, board: str, location_filter: str, seen_urls: set | N
     Phase 2: GET the description for each new, relevant job.
 
     Args:
-        tenant:          Workday tenant slug e.g. "blackrock"
-        board:           Workday board name e.g. "BlackRock_Professional"
-        location_filter: String to match against location facet descriptors e.g. "London"
-        seen_urls:       URLs already recorded; descriptions skipped for these
-        wd:              Workday subdomain e.g. "wd1" or "wd3"
+        tenant:           Workday tenant slug e.g. "blackrock"
+        board:            Workday board name e.g. "BlackRock_Professional"
+        location_filter:  String to match against location facet descriptors e.g. "London"
+        seen_urls:        URLs already recorded; descriptions skipped for these
+        wd:               Workday subdomain e.g. "wd1" or "wd3"
+        location_aliases: Additional location terms unioned with location_filter e.g. ["canary wharf"]
+                          Useful when a company uses building/district names instead of city names.
 
     Returns:
         List of job dicts with keys: title, url, location, department, content
@@ -55,7 +57,7 @@ def fetch_jobs(tenant: str, board: str, location_filter: str, seen_urls: set | N
     canonical_base = f"https://{tenant}.{wd}.myworkdayjobs.com/{board}"
 
     # Phase 1: discover location facet key + IDs then collect stubs
-    location_facet_key, location_ids = _discover_location_ids(jobs_url, location_filter)
+    location_facet_key, location_ids = _discover_location_ids(jobs_url, location_filter, location_aliases)
     if not location_ids:
         logger.warning(f"No location facets matched '{location_filter}' for {tenant}/{board}")
         return []
@@ -63,40 +65,41 @@ def fetch_jobs(tenant: str, board: str, location_filter: str, seen_urls: set | N
     stubs = _fetch_stubs(jobs_url, location_facet_key, location_ids, canonical_base)
 
     # Phase 2: fetch descriptions for new, relevant jobs
-    is_debug = logger.isEnabledFor(logging.DEBUG)
     debug_fetched: list[str] = []
     debug_blocked: list[tuple[str, str]] = []
     debug_kept: list[str] = []
+    seen_count = 0
 
     results = []
     for stub in stubs:
         if stub["url"] in seen_urls:
+            seen_count += 1
             continue
         title = stub["title"]
-        if is_debug:
-            debug_fetched.append(title)
+        debug_fetched.append(title)
         if not passes_local_filter(title, allowlist, blocklist):
-            if is_debug:
-                debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
+            debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
             continue
-        if is_debug:
-            debug_kept.append(title)
+        debug_kept.append(title)
         content = _fetch_content(api_base, stub.pop("external_path"))
         stub["content"] = content
         results.append(stub)
         time.sleep(1)  # pace detail calls — Cloudflare is present
 
-    if is_debug:
-        log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept)
+    log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept,
+                     total=seen_count + len(debug_fetched), seen=seen_count, new=len(results))
     return results
 
 
-def _discover_location_ids(jobs_url: str, location_filter: str) -> tuple[str, list[str]]:
+def _discover_location_ids(jobs_url: str, location_filter: str, location_aliases: list[str] | None = None) -> tuple[str, list[str]]:
     """POST with limit=1 to get location facets; return (facet_key, [matching_ids]).
 
     Handles two Workday facet structures:
     - Nested (BlackRock, Barclays): locationMainGroup → values[].facetParameter="locations" → values[].{id, descriptor}
     - Flat (Deutsche Bank): Location → values[].{id, descriptor}
+
+    location_aliases adds extra match terms (OR logic) so offices that don't use the city
+    name (e.g. "Canary Wharf, 1 Churchill Place") are still included.
     """
     try:
         resp = requests.post(
@@ -110,7 +113,12 @@ def _discover_location_ids(jobs_url: str, location_filter: str) -> tuple[str, li
         logger.error(f"Failed to discover location facets: {e}")
         return ("", [])
 
-    needle = location_filter.lower()
+    needles = {location_filter.lower()} | {a.lower() for a in (location_aliases or [])}
+
+    def _matches(descriptor: str) -> bool:
+        d = descriptor.lower()
+        return any(n in d for n in needles)
+
     for facet in resp.json().get("facets", []):
         fp = facet.get("facetParameter", "")
         values = facet.get("values", [])
@@ -119,21 +127,13 @@ def _discover_location_ids(jobs_url: str, location_filter: str) -> tuple[str, li
         for v in values:
             if v.get("values"):
                 nested_fp = v.get("facetParameter", fp)
-                ids = [
-                    nv["id"]
-                    for nv in v["values"]
-                    if needle in nv.get("descriptor", "").lower() and nv.get("id")
-                ]
+                ids = [nv["id"] for nv in v["values"] if _matches(nv.get("descriptor", "")) and nv.get("id")]
                 if ids:
                     return (nested_fp, ids)
 
         # Flat pattern: location facet directly holds {id, descriptor} entries
         if "location" in fp.lower():
-            ids = [
-                v["id"]
-                for v in values
-                if needle in v.get("descriptor", "").lower() and v.get("id")
-            ]
+            ids = [v["id"] for v in values if _matches(v.get("descriptor", "")) and v.get("id")]
             if ids:
                 return (fp, ids)
 

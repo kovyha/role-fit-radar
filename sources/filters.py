@@ -1,4 +1,5 @@
 import logging
+from collections import Counter
 
 from config import TITLE_TERMS, TITLE_BLOCKLIST
 
@@ -48,19 +49,46 @@ def explain_filter_result(title: str, allowlist: frozenset | None, blocklist: fr
     return None
 
 
+def _blocked_reasons(blocked: list[tuple[str, str]]) -> str:
+    """Return compact aggregated blocklist reasons: 'analyst×3, graduate×1'."""
+    counts: Counter = Counter()
+    for _, reason in blocked:
+        term = reason.removeprefix("blocklist: ").split(" in '")[0]
+        counts[term] += 1
+    return ", ".join(f"{r}×{n}" if n > 1 else r for r, n in counts.most_common())
+
+
 def log_filter_debug(
     logger: logging.Logger,
     fetched: list[str],
     blocked: list[tuple[str, str]],
     kept: list[str],
+    total: int = 0,
+    seen: int = 0,
+    new: int | None = None,
 ) -> None:
-    """Emit a three-line DEBUG breakdown of a filtering pass."""
-    if fetched:
-        logger.debug(f"  fetched({len(fetched)}): {' | '.join(fetched)}")
+    """Emit a compact INFO summary, plus verbose DEBUG breakdown with --debug."""
+    n_new = (len(kept) - seen) if new is None else new
+    if not total and not fetched and not blocked and not seen and not n_new:
+        return
+
+    parts: list[str] = []
+    if total:
+        parts.append(f"{total} total")
     if blocked:
-        logger.debug(f"  blocked({len(blocked)}): {' | '.join(f'{t} ({r})' for t, r in blocked)}")
-    if kept:
-        logger.debug(f"    kept({len(kept)}): {' | '.join(kept)}")
+        parts.append(f"{len(blocked)} blocked ({_blocked_reasons(blocked)})")
+    if seen:
+        parts.append(f"{seen} seen")
+    parts.append(f"{n_new} new")
+    logger.info("  " + " · ".join(parts))
+
+    if logger.isEnabledFor(logging.DEBUG):
+        if fetched:
+            logger.debug(f"  fetched({len(fetched)}): {' | '.join(fetched)}")
+        if blocked:
+            logger.debug(f"  blocked({len(blocked)}): {' | '.join(f'{t} ({r})' for t, r in blocked)}")
+        if kept:
+            logger.debug(f"    kept({len(kept)}): {' | '.join(kept)}")
 
 
 def is_relevant_title(title: str) -> bool:

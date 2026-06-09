@@ -159,7 +159,7 @@ class TestSharedParsers:
         stubs, total = _parse_stubs(data)
         assert total == 1
         assert stubs[0] == {"id": 1, "title": "Quant Dev", "url": "https://x.com/1",
-                             "location": "London", "department": "Tech"}
+                             "location": "London", "department": "Tech", "first_published": None}
 
     def test_parse_stubs_empty_positions(self):
         stubs, total = _parse_stubs({"positions": [], "count": 0})

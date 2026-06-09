@@ -45,7 +45,7 @@ def _ask_ai_url(job: dict, variant_key: str) -> str:
     return f"https://claude.ai/new?q={urllib.parse.quote(prompt)}"
 
 
-def send_summary(jobs: list[dict], pending_companies: list[dict] | None = None) -> None:
+def send_summary(jobs: list[dict], pending_companies: list[dict] | None = None, source_issues: list[str] | None = None) -> None:
     """
     Send an HTML email summarising newly found roles and their fit assessments.
     If no jobs found, sends a status email confirming the scan ran.
@@ -56,8 +56,9 @@ def send_summary(jobs: list[dict], pending_companies: list[dict] | None = None) 
                            When provided, the email is flagged as a partial run.
     """
     pending_companies = pending_companies or []
-    html = _build_html(jobs, pending_companies)
-    plain = _build_plain(jobs, pending_companies)
+    source_issues = source_issues or []
+    html = _build_html(jobs, pending_companies, source_issues)
+    plain = _build_plain(jobs, pending_companies, source_issues)
 
     if jobs:
         counts = Counter(j.get("recommendation", "") for j in jobs)
@@ -82,6 +83,8 @@ def send_summary(jobs: list[dict], pending_companies: list[dict] | None = None) 
     else:
         subject = f"Role Fit Radar — No new roles — {date.today().strftime('%Y-%m-%d')}"
 
+    if source_issues:
+        subject = f"[eFC BLOCKED?] {subject}"
     if pending_companies:
         subject = f"[PARTIAL] {subject}"
 
@@ -102,6 +105,20 @@ def send_summary(jobs: list[dict], pending_companies: list[dict] | None = None) 
         print(f"[gmail] Summary email sent — {len(jobs)} role(s)")
     except Exception as e:
         print(f"[gmail] Failed to send email: {e}")
+
+
+def _source_issues_banner_html(source_issues: list[str]) -> str:
+    if not source_issues:
+        return ""
+    items = "".join(f"<li>{issue}</li>" for issue in source_issues)
+    return f"""
+        <div style="background:#fce4ec;border:1px solid #c62828;border-radius:4px;padding:12px 16px;margin-bottom:20px;">
+            <strong style="color:#b71c1c;">Source Warning — Results May Be Incomplete</strong>
+            <ul style="margin:8px 0 4px;padding-left:20px;">{items}</ul>
+            <p style="margin:0;font-size:12px;color:#666;">
+                The CI runner was likely Cloudflare-challenged. Re-run the scan or check the source.
+            </p>
+        </div>"""
 
 
 def _partial_banner_html(pending_companies: list[dict]) -> str:
@@ -126,10 +143,11 @@ def _partial_banner_html(pending_companies: list[dict]) -> str:
         </div>"""
 
 
-def _build_html(jobs: list[dict], pending_companies: list[dict] | None = None) -> str:
+def _build_html(jobs: list[dict], pending_companies: list[dict] | None = None, source_issues: list[str] | None = None) -> str:
     """Build an HTML email body with 3 separate tables (Apply, Maybe, Skip)."""
     pending_companies = pending_companies or []
-    banner = _partial_banner_html(pending_companies)
+    source_issues = source_issues or []
+    banner = _source_issues_banner_html(source_issues) + _partial_banner_html(pending_companies)
 
     if not jobs:
         no_roles_msg = (
@@ -236,9 +254,18 @@ def _build_html(jobs: list[dict], pending_companies: list[dict] | None = None) -
     </body></html>"""
 
 
-def _build_plain(jobs: list[dict], pending_companies: list[dict] | None = None) -> str:
+def _build_plain(jobs: list[dict], pending_companies: list[dict] | None = None, source_issues: list[str] | None = None) -> str:
     """Build a plain text fallback email body."""
     pending_companies = pending_companies or []
+    source_issues = source_issues or []
+
+    issues_notice = ""
+    if source_issues:
+        issues_notice = (
+            "\n[SOURCE WARNING — Results May Be Incomplete]\n"
+            + "\n".join(f"  - {i}" for i in source_issues)
+            + "\nThe CI runner was likely Cloudflare-challenged. Re-run or check the source.\n"
+        )
 
     partial_notice = ""
     if pending_companies:
@@ -255,9 +282,9 @@ def _build_plain(jobs: list[dict], pending_companies: list[dict] | None = None) 
             if pending_companies
             else "Scan completed successfully. No new matching roles were found today."
         )
-        return f"Role Fit Radar — No new roles found\n{partial_notice}\n{no_roles_msg}\n"
+        return f"Role Fit Radar — No new roles found\n{issues_notice}{partial_notice}\n{no_roles_msg}\n"
 
-    lines = [f"Role Fit Radar — {len(jobs)} new role(s) found\n{partial_notice}"]
+    lines = [f"Role Fit Radar — {len(jobs)} new role(s) found\n{issues_notice}{partial_notice}"]
     for job in jobs:
         entry = [
             f"{'='*60}",

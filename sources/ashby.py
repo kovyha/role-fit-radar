@@ -42,41 +42,40 @@ def fetch_jobs(org: str, location_filter: str, seen_urls: set | None = None, *, 
 
     jobs = response.json().get("jobs", [])
 
-    is_debug = logger.isEnabledFor(logging.DEBUG)
     debug_fetched: list[str] = []
     debug_blocked: list[tuple[str, str]] = []
     debug_kept: list[str] = []
+    seen_count = 0
 
     results = []
     for job in jobs:
         if not _matches_location(job, location_filter):
             continue
         title = job.get("title", "")
-        if is_debug:
-            debug_fetched.append(title)
+        debug_fetched.append(title)
         if not passes_local_filter(title, allowlist, blocklist):
-            if is_debug:
-                debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
+            debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
             continue
-        if is_debug:
-            debug_kept.append(title)
+        debug_kept.append(title)
 
         job_url = job.get("jobUrl", "")
         if job_url in seen_urls:
+            seen_count += 1
             continue
 
         content = job.get("descriptionPlain", "") or ""
 
         results.append({
-            "title":      title,
-            "url":        job_url,
-            "location":   job.get("location", ""),
-            "department": job.get("department", ""),
-            "content":    content[:JOB_CONTENT_MAX_CHARS],
+            "title":           title,
+            "url":             job_url,
+            "location":        job.get("location", ""),
+            "department":      job.get("department", ""),
+            "content":         content[:JOB_CONTENT_MAX_CHARS],
+            "first_published": (job.get("publishedAt") or "")[:10] or None,
         })
 
-    if is_debug:
-        log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept)
+    log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept,
+                     total=len(debug_fetched), seen=seen_count, new=len(results))
     return results
 
 

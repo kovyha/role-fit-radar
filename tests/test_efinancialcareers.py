@@ -42,7 +42,7 @@ class TestFetchJobsAsync:
             mock_page.evaluate.return_value = "Job description text"
 
             from sources.efinancialcareers import _fetch_jobs_async
-            jobs = await _fetch_jobs_async("London", set())
+            jobs, _ = await _fetch_jobs_async("London", set())
 
             assert len(jobs) > 0
             job = jobs[0]
@@ -77,7 +77,7 @@ class TestFetchJobsAsync:
             mock_page.evaluate.return_value = "Description"
 
             from sources.efinancialcareers import _fetch_jobs_async
-            jobs = await _fetch_jobs_async("London", set())
+            jobs, _ = await _fetch_jobs_async("London", set())
 
             assert len(jobs) == 1
             assert jobs[0]['url'] == same_url
@@ -94,7 +94,7 @@ class TestFetchJobsAsync:
             mock_page.query_selector_all.return_value = []
 
             from sources.efinancialcareers import _fetch_jobs_async
-            jobs = await _fetch_jobs_async("London", set())
+            jobs, _ = await _fetch_jobs_async("London", set())
 
             assert jobs == []
 
@@ -105,7 +105,7 @@ class TestFetchJobsAsync:
             mock_pw.return_value.__aenter__.side_effect = Exception("Browser launch failed")
 
             from sources.efinancialcareers import _fetch_jobs_async
-            jobs = await _fetch_jobs_async("London", set())
+            jobs, _ = await _fetch_jobs_async("London", set())
 
             assert jobs == []
 
@@ -225,7 +225,7 @@ class TestFetchJobsAsync:
         ]
 
         with patch('sources.efinancialcareers._fetch_jobs_async') as mock_async:
-            mock_async.return_value = expected_jobs
+            mock_async.return_value = (expected_jobs, len(expected_jobs))
 
             from sources.efinancialcareers import fetch_jobs
             jobs = fetch_jobs("London")
@@ -244,6 +244,30 @@ class TestFetchJobsAsync:
 
             assert jobs == []
 
+    def test_all_zeros_populates_out_warnings(self):
+        """fetch_jobs appends a warning when all search terms return 0 cards."""
+        with patch('sources.efinancialcareers._fetch_jobs_async') as mock_async:
+            mock_async.return_value = ([], 0)
+
+            warnings: list[str] = []
+            from sources.efinancialcareers import fetch_jobs
+            jobs = fetch_jobs("London", search_terms=frozenset(["trading"]), out_warnings=warnings)
+
+            assert jobs == []
+            assert len(warnings) == 1
+            assert "eFC" in warnings[0]
+
+    def test_no_warning_when_cards_found(self):
+        """fetch_jobs does not populate out_warnings when cards were fetched."""
+        with patch('sources.efinancialcareers._fetch_jobs_async') as mock_async:
+            mock_async.return_value = ([], 5)  # 5 cards found but all filtered/seen
+
+            warnings: list[str] = []
+            from sources.efinancialcareers import fetch_jobs
+            fetch_jobs("London", search_terms=frozenset(["trading"]), out_warnings=warnings)
+
+            assert warnings == []
+
     @pytest.mark.asyncio
     async def test_fetch_jobs_page_error_triggers_cleanup(self):
         """page.goto error closes page and context before breaking the keyword loop."""
@@ -256,7 +280,7 @@ class TestFetchJobsAsync:
             mock_page.goto.side_effect = Exception("Navigation timeout")
 
             from sources.efinancialcareers import _fetch_jobs_async
-            jobs = await _fetch_jobs_async("London", set())
+            jobs, _ = await _fetch_jobs_async("London", set())
 
             assert jobs == []
             mock_page.close.assert_called()

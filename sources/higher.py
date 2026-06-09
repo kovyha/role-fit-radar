@@ -125,10 +125,10 @@ def _fetch_stubs(country: str, subfilter: str, seen_urls: set, allowlist: frozen
             }
         ]
 
-    is_debug = logger.isEnabledFor(logging.DEBUG)
     debug_fetched: list[str] = []
     debug_blocked: list[tuple[str, str]] = []
     debug_kept: list[str] = []
+    seen_count = 0
 
     results = []
     page = 0
@@ -158,18 +158,18 @@ def _fetch_stubs(country: str, subfilter: str, seen_urls: set, allowlist: frozen
         for item in items:
             source_id = (item.get("externalSource") or {}).get("sourceId", "")
             url = f"{_CAREERS_BASE}/roles/{source_id}" if source_id else ""
-            if not url or url in seen_urls:
+            if not url:
+                continue
+            if url in seen_urls:
+                seen_count += 1
                 continue
 
             title = item.get("jobTitle", "")
-            if is_debug:
-                debug_fetched.append(title)
+            debug_fetched.append(title)
             if not passes_local_filter(title, allowlist, blocklist):
-                if is_debug:
-                    debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
+                debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
                 continue
-            if is_debug:
-                debug_kept.append(title)
+            debug_kept.append(title)
 
             locs = item.get("locations") or []
             location = ", ".join(filter(None, [locs[0].get("city", ""), locs[0].get("country", "")])) if locs else ""
@@ -188,8 +188,8 @@ def _fetch_stubs(country: str, subfilter: str, seen_urls: set, allowlist: frozen
             break
         page += 1
 
-    if is_debug:
-        log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept)
+    log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept,
+                     total=seen_count + len(debug_fetched), seen=seen_count, new=len(results))
     return results
 
 

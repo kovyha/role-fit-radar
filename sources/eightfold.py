@@ -128,44 +128,54 @@ def fetch_jobs(
 
     stubs = _fetch_stubs(base_url, domain, location_filter)
 
-    is_debug = logger.isEnabledFor(logging.DEBUG)
     debug_fetched: list[str] = []
     debug_blocked: list[tuple[str, str]] = []
     debug_kept: list[str] = []
+    seen_count = 0
 
     results = []
     for stub in stubs:
         if stub["url"] in seen_urls:
+            seen_count += 1
             continue
         title = stub["title"]
-        if is_debug:
-            debug_fetched.append(title)
+        debug_fetched.append(title)
         if not passes_local_filter(title, allowlist, blocklist):
-            if is_debug:
-                debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
+            debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
             continue
-        if is_debug:
-            debug_kept.append(title)
+        debug_kept.append(title)
         content = _fetch_content(base_url, domain, stub.pop("id"))
         stub["content"] = content
         results.append(stub)
 
-    if is_debug:
-        log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept)
+    log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept,
+                     total=seen_count + len(debug_fetched), seen=seen_count, new=len(results))
     return results
 
 
 # ── Shared parsers (used by both requests and Playwright paths) ────────────────
 
+def _ts_to_date(ts) -> str | None:
+    """Convert a Unix timestamp (seconds) to a YYYY-MM-DD string, or None."""
+    if not ts:
+        return None
+    try:
+        from datetime import datetime, timezone
+        return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%d")
+    except Exception:
+        return None
+
+
 def _parse_stubs(data: dict) -> tuple[list[dict], int]:
     """Parse Eightfold list API response into stub dicts and total count."""
     positions = data.get("positions", [])
     stubs = [{
-        "id":         job["id"],
-        "title":      job.get("name", ""),
-        "url":        job.get("canonicalPositionUrl", ""),
-        "location":   job.get("location", ""),
-        "department": job.get("department", ""),
+        "id":              job["id"],
+        "title":           job.get("name", ""),
+        "url":             job.get("canonicalPositionUrl", ""),
+        "location":        job.get("location", ""),
+        "department":      job.get("department", ""),
+        "first_published": _ts_to_date(job.get("t_create")),
     } for job in positions]
     return stubs, data.get("count", 0)
 
@@ -268,35 +278,34 @@ async def _fetch_jobs_playwright(
                 break
             for pos in positions:
                 stubs.append({
-                    "id":         pos["id"],
-                    "title":      pos.get("name", ""),
-                    "url":        f"{base}{pos.get('positionUrl', '')}",
-                    "location":   ", ".join(pos.get("locations", [])),
-                    "department": pos.get("department", ""),
+                    "id":              pos["id"],
+                    "title":           pos.get("name", ""),
+                    "url":             f"{base}{pos.get('positionUrl', '')}",
+                    "location":        ", ".join(pos.get("locations", [])),
+                    "department":      pos.get("department", ""),
+                    "first_published": _ts_to_date(pos.get("t_create")),
                 })
             start += len(positions)
             if start >= total or not positions:
                 break
 
         # Phase 2: filter, then fetch descriptions for new jobs only
-        is_debug = logger.isEnabledFor(logging.DEBUG)
         debug_fetched: list[str] = []
         debug_blocked: list[tuple[str, str]] = []
         debug_kept: list[str] = []
+        seen_count = 0
 
         results = []
         for stub in stubs:
             if stub["url"] in seen_urls:
+                seen_count += 1
                 continue
             title = stub["title"]
-            if is_debug:
-                debug_fetched.append(title)
+            debug_fetched.append(title)
             if not passes_local_filter(title, allowlist, blocklist):
-                if is_debug:
-                    debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
+                debug_blocked.append((title, explain_filter_result(title, allowlist, blocklist)))
                 continue
-            if is_debug:
-                debug_kept.append(title)
+            debug_kept.append(title)
             job_id = stub.pop("id")
             try:
                 resp = await context.request.get(detail_url, params={
@@ -312,8 +321,8 @@ async def _fetch_jobs_playwright(
                 stub["content"] = ""
             results.append(stub)
 
-        if is_debug:
-            log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept)
+        log_filter_debug(logger, debug_fetched, debug_blocked, debug_kept,
+                         total=seen_count + len(debug_fetched), seen=seen_count, new=len(results))
         await browser.close()
 
     return results

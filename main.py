@@ -84,7 +84,7 @@ class _ScanTimeout(BaseException):
         self.pending = pending
 
 
-def _write_and_notify(all_new_jobs: list[dict], pending_companies: list[dict]) -> None:
+def _write_and_notify(all_new_jobs: list[dict], pending_companies: list[dict], source_issues: list[str] | None = None) -> None:
     """Write collected jobs to Sheets and send the summary email."""
     if pending_companies:
         logger.warning(
@@ -97,7 +97,7 @@ def _write_and_notify(all_new_jobs: list[dict], pending_companies: list[dict]) -
         for job, sheet_url in zip(all_new_jobs, sheet_urls):
             job["sheet_url"] = sheet_url
 
-    send_summary(all_new_jobs, pending_companies=pending_companies)
+    send_summary(all_new_jobs, pending_companies=pending_companies, source_issues=source_issues or [])
 
     if pending_companies:
         logger.info(f"Partial run — {len(all_new_jobs)} role(s) processed, {len(pending_companies)} source(s) pending")
@@ -107,7 +107,7 @@ def _write_and_notify(all_new_jobs: list[dict], pending_companies: list[dict]) -
         logger.info("Done — no new roles found, status email sent")
 
 
-def _fetch_with_company_context(company: dict, seen_urls: set, allowlist, blocklist) -> list[dict] | None:
+def _fetch_with_company_context(company: dict, seen_urls: set, allowlist, blocklist, source_issues: list[str] | None = None) -> list[dict] | None:
     """Dispatch to the right source fetch function for this company.
 
     Sets _current_company before the fetch so every log line emitted during the
@@ -126,13 +126,13 @@ def _fetch_with_company_context(company: dict, seen_urls: set, allowlist, blockl
         elif source == "linkedin_email":
             return linkedin_fetch(seen_urls=seen_urls)
         elif source == "efinancialcareers":
-            return efinancial_fetch(LOCATION_FILTER, seen_urls=seen_urls, search_terms=company.get("search_terms"), allowlist=allowlist, blocklist=blocklist)
+            return efinancial_fetch(LOCATION_FILTER, seen_urls=seen_urls, search_terms=company.get("search_terms"), allowlist=allowlist, blocklist=blocklist, out_warnings=source_issues)
         elif source == "ashby":
             return ashby_fetch(company["org"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
         elif source == "eightfold":
             return eightfold_fetch(company["domain"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist, use_playwright=company.get("use_playwright", False))
         elif source == "workday":
-            return workday_fetch(company["tenant"], company["board"], LOCATION_FILTER, seen_urls=seen_urls, wd=company.get("wd", "wd1"), allowlist=allowlist, blocklist=blocklist)
+            return workday_fetch(company["tenant"], company["board"], LOCATION_FILTER, seen_urls=seen_urls, wd=company.get("wd", "wd1"), allowlist=allowlist, blocklist=blocklist, location_aliases=company.get("location_aliases"))
         elif source == "higher":
             return higher_fetch(LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
         elif source == "oracle_hcm":
@@ -156,6 +156,7 @@ def main():
         logger.warning("Profile tab is empty — assessments will be low quality")
 
     all_new_jobs = []
+    source_issues: list[str] = []
     total_sources = len(COMPANIES)
 
     # _source_idx tracks which company is currently being fetched so the SIGTERM handler
@@ -177,7 +178,7 @@ def main():
             blocklist = company.get("local_blocklist")
 
             t0 = time.monotonic()
-            jobs = _fetch_with_company_context(company, seen_urls, allowlist, blocklist)
+            jobs = _fetch_with_company_context(company, seen_urls, allowlist, blocklist, source_issues)
             if jobs is None:
                 logger.warning(f"Unknown source '{company['source']}' for {company['name']} — skipping")
                 _source_idx[0] = i + 1
@@ -185,7 +186,7 @@ def main():
 
             elapsed = time.monotonic() - t0
             new_jobs = [j for j in jobs if j["url"] not in seen_urls]
-            logger.info(f"{company['name']}: {len(jobs)} total, {len(new_jobs)} new ({elapsed:.1f}s)")
+            logger.info(f"{company['name']}: {len(new_jobs)} new ({elapsed:.1f}s)")
 
             # Step 5: Assess each new role
             assess_total = len(new_jobs)
@@ -214,7 +215,7 @@ def main():
         # SIGTERM from GitHub Actions hitting its runner timeout.
         # Ignore any further SIGTERMs so the flush can complete uninterrupted.
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        _write_and_notify(all_new_jobs, exc.pending)
+        _write_and_notify(all_new_jobs, exc.pending, source_issues)
         logger.info(f"Total scan time: {time.monotonic() - run_start:.0f}s")
         return
 
@@ -222,7 +223,7 @@ def main():
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
 
     # Step 6 & 7: Normal completion — write and notify
-    _write_and_notify(all_new_jobs, [])
+    _write_and_notify(all_new_jobs, [], source_issues)
     logger.info(f"Total scan time: {time.monotonic() - run_start:.0f}s")
 
 
