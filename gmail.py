@@ -88,10 +88,12 @@ def send_summary(jobs: list[dict], pending_companies: list[dict] | None = None, 
     if pending_companies:
         subject = f"[PARTIAL] {subject}"
 
+    recipients = [r.strip() for r in EMAIL_RECIPIENT.split(",") if r.strip()]
+
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = EMAIL_SENDER
-    msg["To"] = EMAIL_RECIPIENT
+    msg["To"] = ", ".join(recipients)
 
     msg.attach(MIMEText(plain, "plain"))
     msg.attach(MIMEText(html, "html"))
@@ -101,7 +103,7 @@ def send_summary(jobs: list[dict], pending_companies: list[dict] | None = None, 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(EMAIL_SENDER, password)
-            server.sendmail(EMAIL_SENDER, EMAIL_RECIPIENT, msg.as_string())
+            server.sendmail(EMAIL_SENDER, recipients, msg.as_string())
         print(f"[gmail] Summary email sent — {len(jobs)} role(s)")
     except Exception as e:
         print(f"[gmail] Failed to send email: {e}")

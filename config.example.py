@@ -113,6 +113,7 @@ LOCATION_FILTER = ""  # e.g. "London", "New York", "Singapore"
 
 EMAIL_SENDER = os.environ.get("GMAIL_USER", "")
 EMAIL_RECIPIENT = os.environ.get("EMAIL_RECIPIENT", os.environ.get("GMAIL_USER", ""))
+# EMAIL_RECIPIENT supports comma-separated addresses: "a@example.com, b@example.com"
 EMAIL_SUBJECT = "Role Fit Radar — New Roles Found"
 
 JOBS_TAB = "Jobs"
