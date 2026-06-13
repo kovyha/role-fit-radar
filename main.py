@@ -33,6 +33,9 @@ from sources.eightfold import fetch_jobs as eightfold_fetch
 from sources.workday import fetch_jobs as workday_fetch
 from sources.higher import fetch_jobs as higher_fetch
 from sources.oracle_hcm import fetch_jobs as oracle_hcm_fetch
+from sources.wfh_hub import fetch_jobs as wfh_hub_fetch
+from sources.simplyhired import fetch_jobs as simplyhired_fetch
+from sources.tes import fetch_jobs as tes_fetch
 from sheets import get_seen_urls, get_seen_title_company_keys, get_profile, append_jobs
 from assessor import assess_fit
 from gmail import send_summary
@@ -137,6 +140,12 @@ def _fetch_with_company_context(company: dict, seen_urls: set, allowlist, blockl
             return higher_fetch(LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
         elif source == "oracle_hcm":
             return oracle_hcm_fetch(company["host"], company["site"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
+        elif source == "wfh_hub":
+            return wfh_hub_fetch(LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
+        elif source == "simplyhired":
+            return simplyhired_fetch(LOCATION_FILTER, seen_urls=seen_urls, search_terms=company.get("search_terms", frozenset()), allowlist=allowlist, blocklist=blocklist)
+        elif source == "tes":
+            return tes_fetch(LOCATION_FILTER, seen_urls=seen_urls, search_terms=company.get("search_terms", frozenset()), allowlist=allowlist, blocklist=blocklist)
         return None
     finally:
         _current_company.reset(token)

@@ -1,0 +1,48 @@
+name: Role Fit Radar — Friend
+
+on:
+  schedule:
+    - cron: '0 12 * * *'   # Daily at 12:00 UTC (1pm BST / 12pm GMT)
+  workflow_dispatch:         # Manual trigger — useful for testing
+    inputs:
+      debug:
+        description: 'Enable debug logging (shows per-source title filter breakdown)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright browsers
+        run: playwright install chromium --with-deps
+
+      - name: Write config
+        run: echo "$CONFIG_PY" > config.py
+        env:
+          CONFIG_PY: ${{ secrets.CONFIG_PY_FRIEND }}
+
+      - name: Run scanner
+        run: python main.py ${{ github.event.inputs.debug == 'true' && '--debug' || '' }}
+        env:
+          ANTHROPIC_API_KEY:            ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_JSON:  ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GMAIL_USER:                   ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD:           ${{ secrets.GMAIL_APP_PASSWORD }}
+          SHEET_ID:                     ${{ secrets.SHEET_ID_FRIEND }}
+          EMAIL_RECIPIENT:              ${{ secrets.EMAIL_RECIPIENT_FRIEND }}
