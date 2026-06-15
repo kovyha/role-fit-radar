@@ -13,6 +13,8 @@ from datetime import date
 
 from config import CV_AI_KEYWORDS, CV_QUANT_KEYWORDS, CV_VARIANTS, EMAIL_RECIPIENT, EMAIL_SENDER
 
+SCAN_NAME = os.environ.get("SCAN_NAME", "").strip()
+
 
 def _select_cv_variant(job: dict) -> str:
     """Pick the most relevant CV variant based on keywords in the job."""
@@ -60,6 +62,8 @@ def send_summary(jobs: list[dict], pending_companies: list[dict] | None = None, 
     html = _build_html(jobs, pending_companies, source_issues)
     plain = _build_plain(jobs, pending_companies, source_issues)
 
+    scan_tag = f"[{SCAN_NAME}] " if SCAN_NAME else ""
+
     if jobs:
         counts = Counter(j.get("recommendation", "") for j in jobs)
         n_apply = counts.get("Apply", 0)
@@ -75,13 +79,13 @@ def send_summary(jobs: list[dict], pending_companies: list[dict] | None = None, 
             if n_maybe:
                 parts.append(f"{n_maybe} Maybe")
             prefix = " + ".join(parts)
-            subject = f"[{prefix}] Role Fit Radar — {today}"
+            subject = f"[{prefix}] Role Fit Radar {scan_tag}— {today}"
             if n_skip:
                 subject += f" ({n_skip} Skip)"
         else:
-            subject = f"Role Fit Radar — {n_skip} Skip — {today}"
+            subject = f"Role Fit Radar {scan_tag}— {n_skip} Skip — {today}"
     else:
-        subject = f"Role Fit Radar — No new roles — {date.today().strftime('%Y-%m-%d')}"
+        subject = f"Role Fit Radar {scan_tag}— No new roles — {date.today().strftime('%Y-%m-%d')}"
 
     if source_issues:
         subject = f"[eFC BLOCKED?] {subject}"
