@@ -234,39 +234,32 @@ class TestFetchJobsAsync:
             assert len(jobs) == 1
             assert jobs[0]['title'] == "Quant Role"
 
-    def test_fetch_jobs_handles_errors(self):
-        """fetch_jobs() returns empty list on error."""
+    def test_fetch_jobs_raises_on_internal_error(self):
+        """fetch_jobs() raises RuntimeError on unexpected internal error."""
         with patch('sources.efinancialcareers._fetch_jobs_async') as mock_async:
             mock_async.side_effect = Exception("Test error")
 
             from sources.efinancialcareers import fetch_jobs
-            jobs = fetch_jobs("London")
+            with pytest.raises(RuntimeError, match="eFC: unexpected error"):
+                fetch_jobs("London")
 
-            assert jobs == []
-
-    def test_all_zeros_populates_out_warnings(self):
-        """fetch_jobs appends a warning when all search terms return 0 cards."""
+    def test_all_zeros_raises(self):
+        """fetch_jobs raises RuntimeError when all search terms return 0 cards (bot-blocked)."""
         with patch('sources.efinancialcareers._fetch_jobs_async') as mock_async:
             mock_async.return_value = ([], 0)
 
-            warnings: list[str] = []
             from sources.efinancialcareers import fetch_jobs
-            jobs = fetch_jobs("London", search_terms=frozenset(["trading"]), out_warnings=warnings)
+            with pytest.raises(RuntimeError, match="eFC"):
+                fetch_jobs("London", search_terms=frozenset(["trading"]))
 
-            assert jobs == []
-            assert len(warnings) == 1
-            assert "eFC" in warnings[0]
-
-    def test_no_warning_when_cards_found(self):
-        """fetch_jobs does not populate out_warnings when cards were fetched."""
+    def test_no_raise_when_cards_found(self):
+        """fetch_jobs does not raise when cards were fetched (even if all filtered/seen)."""
         with patch('sources.efinancialcareers._fetch_jobs_async') as mock_async:
             mock_async.return_value = ([], 5)  # 5 cards found but all filtered/seen
 
-            warnings: list[str] = []
             from sources.efinancialcareers import fetch_jobs
-            fetch_jobs("London", search_terms=frozenset(["trading"]), out_warnings=warnings)
-
-            assert warnings == []
+            jobs = fetch_jobs("London", search_terms=frozenset(["trading"]))
+            assert jobs == []
 
     @pytest.mark.asyncio
     async def test_fetch_jobs_page_error_triggers_cleanup(self):

@@ -44,34 +44,30 @@ def fetch_jobs(
     search_terms: frozenset = TITLE_TERMS,
     allowlist: frozenset = frozenset(),
     blocklist: frozenset = TITLE_BLOCKLIST,
-    out_warnings: list[str] | None = None,
 ) -> list[dict]:
     """
     Fetch jobs from eFinancialCareers for each search term, filtered by location.
-    Pass seen_urls (from Google Sheet) to skip description fetches for known jobs.
-    Pass out_warnings (a mutable list) to receive a warning string when all terms
-    return 0 cards, indicating the CI runner was likely bot-blocked.
+
+    Raises RuntimeError when all terms return 0 cards (likely bot-blocked) or on
+    unexpected internal failure, so the caller can surface it in the run summary.
 
     Returns:
         List of job dicts: {title, url, location, company, department, content}
     """
+    import asyncio
     try:
-        import asyncio
         stubs, total_cards = asyncio.run(
             _fetch_jobs_async(location_filter, seen_urls or set(), search_terms, allowlist, blocklist)
         )
-        if total_cards == 0 and search_terms:
-            logger.error(
-                "eFC returned 0 cards across all %d search term(s) — "
-                "CI runner may be Cloudflare-challenged; eFinancialCareers results are missing",
-                len(search_terms),
-            )
-            if out_warnings is not None:
-                out_warnings.append(f"eFC: 0 cards across all {len(search_terms)} terms (bot-blocked?)")
-        return stubs
     except Exception as e:
-        logger.error(f"Error fetching jobs: {e}")
-        return []
+        raise RuntimeError(f"eFC: unexpected error — {e}") from e
+
+    if total_cards == 0 and search_terms:
+        raise RuntimeError(
+            f"eFC: 0 cards across all {len(search_terms)} term(s) — "
+            "CI runner may be Cloudflare-challenged"
+        )
+    return stubs
 
 
 async def _fetch_jobs_async(

@@ -22,11 +22,13 @@ _ASHBY_ANTHROPIC = {"name": "Anthropic", "source": "ashby",      "org":   "anthr
 _ASHBY_OPENAI    = {"name": "OpenAI",    "source": "ashby",      "org":   "openai"}
 
 # Convenience aliases for single-source tests
+_ADZUNA_FRIEND = {"name": "Adzuna (friend)", "source": "adzuna", "search_terms": frozenset(["quant"])}
+
 _GH_COMPANY    = _GH_ANTHROPIC
 _ASHBY_COMPANY = _ASHBY_OPENAI
 
 
-def _run(companies, jobs_by_key=None, seen_urls=None, seen_title_keys=None):
+def _run(companies, jobs_by_key=None, seen_urls=None, seen_title_keys=None, adzuna_jobs=None):
     """
     Run main.main() with a patched COMPANIES list and minimal other mocks.
 
@@ -34,6 +36,7 @@ def _run(companies, jobs_by_key=None, seen_urls=None, seen_title_keys=None):
       greenhouse: key is board slug, e.g. ("greenhouse", "anthropic")
       ashby:      key is org slug,   e.g. ("ashby", "openai")
       Falls back to [] for any unspecified key.
+    adzuna_jobs: list[dict] returned by adzuna_fetch (all Adzuna companies share one mock).
     """
     jobs_by_key = jobs_by_key or {}
 
@@ -49,6 +52,7 @@ def _run(companies, jobs_by_key=None, seen_urls=None, seen_title_keys=None):
          patch("main.get_profile",                 return_value="profile"), \
          patch("main.greenhouse_fetch",            side_effect=gh_effect), \
          patch("main.ashby_fetch",                 side_effect=ashby_effect), \
+         patch("main.adzuna_fetch",                return_value=adzuna_jobs or []), \
          patch("main.linkedin_fetch",              return_value=[]), \
          patch("main.efinancial_fetch",            return_value=[]), \
          patch("main.eightfold_fetch",             return_value=[]), \
@@ -139,3 +143,41 @@ class TestCrossRunDedup:
         )
 
         mock_assess.assert_called_once()
+
+
+class TestSamePlatformMultiLocation:
+
+    def test_adzuna_same_title_company_different_locations_both_assessed(self):
+        """
+        Adzuna returns the same role (same title, same company) in two cities.
+        Both have distinct job IDs (distinct URLs) so they are genuinely different
+        postings and must each be assessed — not collapsed into one Dup.
+        """
+        london_job    = {**_job("Quant Analyst", "Goldman Sachs", "https://www.adzuna.co.uk/jobs/details/1001"), "location": "London"}
+        edinburgh_job = {**_job("Quant Analyst", "Goldman Sachs", "https://www.adzuna.co.uk/jobs/details/1002"), "location": "Edinburgh"}
+
+        mock_assess, mock_append = _run(
+            companies=[_ADZUNA_FRIEND],
+            adzuna_jobs=[london_job, edinburgh_job],
+        )
+
+        assert mock_assess.call_count == 2
+        written_jobs = mock_append.call_args[0][0]
+        assert not any(j.get("recommendation") == "Dup" for j in written_jobs)
+
+    def test_adzuna_cross_platform_dup_still_caught(self):
+        """
+        A role already in the sheet (from any previous source) is still marked Dup
+        even when the current source is Adzuna.
+        """
+        original_url = "https://greenhouse.io/original"
+        mock_assess, mock_append = _run(
+            companies=[_ADZUNA_FRIEND],
+            adzuna_jobs=[{**_job("Quant Analyst", "Goldman Sachs", "https://www.adzuna.co.uk/jobs/details/1001"), "location": "London"}],
+            seen_title_keys={"quant analyst|goldman sachs": original_url},
+        )
+
+        mock_assess.assert_not_called()
+        written_jobs = mock_append.call_args[0][0]
+        assert written_jobs[0]["recommendation"] == "Dup"
+        assert original_url in written_jobs[0]["reasoning"]

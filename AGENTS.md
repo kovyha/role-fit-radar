@@ -20,7 +20,7 @@ Whenever you modify any file under `sources/` or `gmail.py`, run the relevant te
 | `sources/oracle_hcm.py` | `uv run pytest tests/test_oracle_hcm.py -v` |
 | `sources/gmail_linkedin.py` | `uv run pytest tests/test_gmail_linkedin.py -v` |
 | `sources/efinancialcareers.py` | `uv run pytest tests/test_efinancialcareers.py -v` |
-| `sources/simplyhired.py` | `uv run pytest tests/test_simplyhired.py -v` |
+| `sources/adzuna.py` | `uv run pytest tests/test_adzuna.py -v` |
 | `sources/tes.py` | `uv run pytest tests/test_tes.py -v` |
 | `sources/wfh_hub.py` | `uv run pytest tests/test_wfh_hub.py -v` |
 | `sources/filters.py` | `uv run pytest tests/test_filters.py -v` |

@@ -34,7 +34,7 @@ from sources.workday import fetch_jobs as workday_fetch
 from sources.higher import fetch_jobs as higher_fetch
 from sources.oracle_hcm import fetch_jobs as oracle_hcm_fetch
 from sources.wfh_hub import fetch_jobs as wfh_hub_fetch
-from sources.simplyhired import fetch_jobs as simplyhired_fetch
+from sources.adzuna import fetch_jobs as adzuna_fetch
 from sources.tes import fetch_jobs as tes_fetch
 from sheets import get_seen_urls, get_seen_title_company_keys, get_profile, append_jobs
 from assessor import assess_fit
@@ -129,7 +129,7 @@ def _fetch_with_company_context(company: dict, seen_urls: set, allowlist, blockl
         elif source == "linkedin_email":
             return linkedin_fetch(seen_urls=seen_urls)
         elif source == "efinancialcareers":
-            return efinancial_fetch(LOCATION_FILTER, seen_urls=seen_urls, search_terms=company.get("search_terms"), allowlist=allowlist, blocklist=blocklist, out_warnings=source_issues)
+            return efinancial_fetch(LOCATION_FILTER, seen_urls=seen_urls, search_terms=company.get("search_terms"), allowlist=allowlist, blocklist=blocklist)
         elif source == "ashby":
             return ashby_fetch(company["org"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
         elif source == "eightfold":
@@ -142,11 +142,17 @@ def _fetch_with_company_context(company: dict, seen_urls: set, allowlist, blockl
             return oracle_hcm_fetch(company["host"], company["site"], LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
         elif source == "wfh_hub":
             return wfh_hub_fetch(LOCATION_FILTER, seen_urls=seen_urls, allowlist=allowlist, blocklist=blocklist)
-        elif source == "simplyhired":
-            return simplyhired_fetch(LOCATION_FILTER, seen_urls=seen_urls, search_terms=company.get("search_terms", frozenset()), allowlist=allowlist, blocklist=blocklist)
+        elif source == "adzuna":
+            return adzuna_fetch(LOCATION_FILTER, seen_urls=seen_urls, search_terms=company.get("search_terms", frozenset()), allowlist=allowlist, blocklist=blocklist)
         elif source == "tes":
             return tes_fetch(LOCATION_FILTER, seen_urls=seen_urls, search_terms=company.get("search_terms", frozenset()), allowlist=allowlist, blocklist=blocklist)
         return None
+    except Exception as e:
+        msg = f"{company['name']}: {e}"
+        logger.error(msg)
+        if source_issues is not None:
+            source_issues.append(msg)
+        return []
     finally:
         _current_company.reset(token)
 
@@ -158,6 +164,9 @@ def main():
     # Step 1 & 2: Load state from Google Sheets
     seen_urls = get_seen_urls()
     seen_title_keys = get_seen_title_company_keys()  # cross-platform dedup; grows within the run too
+    # Tracks which source first claimed each title|company key this run so same-platform
+    # multi-location jobs (e.g. Adzuna London + Edinburgh) are not falsely deduped.
+    _title_key_source: dict[str, str] = {}
     profile = get_profile()
     logger.info(f"{len(seen_urls)} previously seen role(s) loaded")
 
@@ -203,15 +212,23 @@ def main():
                 if company["source"] in ("greenhouse", "ashby", "eightfold", "workday", "higher", "oracle_hcm"):
                     job["company"] = company["name"]
                 title_key = f"{job.get('title', '').lower()}|{job.get('company', '').lower()}"
+                current_source = company["source"]
                 if title_key in seen_title_keys:
-                    original_url = seen_title_keys[title_key]
-                    logger.info(f"Duplicate (cross-platform): {job['title']} @ {job.get('company', '')}")
-                    job.update({"fit_score": "", "key_strengths": "", "key_gaps": "",
-                                "recommendation": "Dup", "reasoning": f"Dup of {original_url}"})
-                    job["source"] = company["source"]
-                    all_new_jobs.append(job)
-                    continue
-                seen_title_keys[title_key] = job.get("url", "")
+                    existing_source = _title_key_source.get(title_key, "sheet")
+                    if existing_source == current_source:
+                        # Same platform, different location — genuine distinct posting; fall through
+                        pass
+                    else:
+                        original_url = seen_title_keys[title_key]
+                        logger.info(f"Duplicate (cross-platform): {job['title']} @ {job.get('company', '')}")
+                        job.update({"fit_score": "", "key_strengths": "", "key_gaps": "",
+                                    "recommendation": "Dup", "reasoning": f"Dup of {original_url}"})
+                        job["source"] = current_source
+                        all_new_jobs.append(job)
+                        continue
+                if title_key not in seen_title_keys:
+                    seen_title_keys[title_key] = job.get("url", "")
+                    _title_key_source[title_key] = current_source
                 logger.info(f"Assessing [{assess_idx}/{assess_total}]: {job['title']}")
                 assessment = assess_fit(job, profile)
                 job.update(assessment)

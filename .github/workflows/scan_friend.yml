@@ -47,3 +47,5 @@ jobs:
           SHEET_ID:                     ${{ secrets.SHEET_ID_FRIEND }}
           EMAIL_RECIPIENT:              ${{ secrets.EMAIL_RECIPIENT_FRIEND }}
           SCAN_NAME:                    Domi
+          ADZUNA_APP_ID:                ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY:               ${{ secrets.ADZUNA_APP_KEY }}
