@@ -37,34 +37,32 @@ def assess_fit(job: dict, profile: str) -> dict:
         "Read the complete career history in the candidate profile. Draw on ALL listed roles "
         "when assessing strengths — recent roles reflect current scope but earlier roles may "
         "contain the deepest domain expertise.\n\n"
-        f"CANDIDATE PROFILE:\n{profile}"
+        f"CANDIDATE PROFILE:\n{profile}\n\n"
+        "SCORING RUBRIC:\n"
+        "1. Identify all qualifications labeled Required, Must Have, Minimum Qualifications, or equivalent hard-requirement language.\n"
+        "2. For each required qualification, decide whether the candidate meets it. List every unmet one verbatim in \"unmet_required_quals\".\n"
+        "3. Preferred, Nice-to-Have, or Plus qualifications do not belong in \"unmet_required_quals\".\n"
+        "4. Set fit_score freely based on overall fit, then it will be capped externally: 1 unmet → max 6, 2+ unmet → max 4.\n"
+        "5. Call out any unmet required qualifications explicitly at the start of key_gaps.\n\n"
+        "Respond ONLY with a JSON object. No preamble, no markdown, no backticks. Use exactly this structure:\n"
+        "{\n"
+        "  \"unmet_required_quals\": [\"<verbatim required qualification that is unmet>\", ...],\n"
+        "  \"fit_score\": <integer 1-10>,\n"
+        "  \"key_strengths\": \"<2-3 sentences on strongest matches>\",\n"
+        "  \"key_gaps\": \"<2-3 sentences on most significant gaps or risks>\",\n"
+        "  \"recommendation\": \"<one of: Apply / Maybe / Skip>\",\n"
+        "  \"reasoning\": \"<1-2 sentences overall verdict>\"\n"
+        "}"
     )
 
-    prompt = f"""Assess the fit for the following role and respond ONLY with a JSON object. No preamble, no markdown, no backticks.{hint_block}
+    prompt = f"""Assess the fit for the following role.{hint_block}
 
 JOB TITLE: {job['title']}
 DEPARTMENT: {job['department']}
 LOCATION: {job['location']}
 
 JOB DESCRIPTION:
-{job['content']}
-
-SCORING RUBRIC:
-1. Identify all qualifications labeled Required, Must Have, Minimum Qualifications, or equivalent hard-requirement language.
-2. For each required qualification, decide whether the candidate meets it. List every unmet one verbatim in "unmet_required_quals".
-3. Preferred, Nice-to-Have, or Plus qualifications do not belong in "unmet_required_quals".
-4. Set fit_score freely based on overall fit, then it will be capped externally: 1 unmet → max 6, 2+ unmet → max 4.
-5. Call out any unmet required qualifications explicitly at the start of key_gaps.
-
-Use exactly this structure:
-{{
-  "unmet_required_quals": ["<verbatim required qualification that is unmet>", ...],
-  "fit_score": <integer 1-10>,
-  "key_strengths": "<2-3 sentences on strongest matches>",
-  "key_gaps": "<2-3 sentences on most significant gaps or risks>",
-  "recommendation": "<one of: Apply / Maybe / Skip>",
-  "reasoning": "<1-2 sentences overall verdict>"
-}}"""
+{job['content']}"""
 
     try:
         message = _client.messages.create(

@@ -134,11 +134,11 @@ def test_prompt_contains_required_quals_rubric(mock_client):
     from assessor import assess_fit
     assess_fit(SAMPLE_JOB, SAMPLE_PROFILE)
 
-    prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
-    assert "SCORING RUBRIC" in prompt, "Required-quals rubric block missing from prompt"
-    assert "unmet_required_quals" in prompt, "unmet_required_quals field missing from rubric"
-    assert "1 unmet" in prompt, "Single-miss cap reference missing from rubric"
-    assert "2+ unmet" in prompt, "Double-miss cap reference missing from rubric"
+    system = _get_system_text(mock_client.messages.create.call_args)
+    assert "SCORING RUBRIC" in system, "Required-quals rubric block missing from prompt"
+    assert "unmet_required_quals" in system, "unmet_required_quals field missing from rubric"
+    assert "1 unmet" in system, "Single-miss cap reference missing from rubric"
+    assert "2+ unmet" in system, "Double-miss cap reference missing from rubric"
 
 
 @patch("assessor._client")
