@@ -87,6 +87,9 @@ def send_summary(jobs: list[dict], pending_companies: list[dict] | None = None, 
     else:
         subject = f"Role Fit Radar {scan_tag}— No new roles — {date.today().strftime('%Y-%m-%d')}"
 
+    n_failed = sum(1 for j in jobs if j.get("assessment_failed"))
+    if n_failed:
+        subject = f"[{n_failed} ASSESS FAILED] {subject}"
     if source_issues:
         subject = f"[eFC BLOCKED?] {subject}"
     if pending_companies:
@@ -127,6 +130,30 @@ def _source_issues_banner_html(source_issues: list[str]) -> str:
         </div>"""
 
 
+def _failed_assessments_banner_html(jobs: list[dict]) -> str:
+    failed = [j for j in jobs if j.get("assessment_failed")]
+    if not failed:
+        return ""
+    items = ""
+    for job in failed:
+        sheet_url = job.get("sheet_url", "")
+        sheet_link = f' &nbsp;<a href="{sheet_url}" style="font-size:11px;color:#888;">sheet ↗</a>' if sheet_url else ""
+        items += (
+            f'<li><a href="{job.get("url", "")}" style="font-weight:bold;color:#1a1a1a;">{job.get("title", "")}</a>'
+            f'{sheet_link} — {job.get("company", "")} · {job.get("source", "")}<br>'
+            f'<small style="color:#666;">{job.get("reasoning", "")}</small></li>'
+        )
+    return f"""
+        <div style="background:#fce4ec;border:1px solid #c62828;border-radius:4px;padding:12px 16px;margin-bottom:20px;">
+            <strong style="color:#b71c1c;">Assessment Failed — {len(failed)} Role(s) Need Manual Review</strong>
+            <ul style="margin:8px 0 4px;padding-left:20px;">{items}</ul>
+            <p style="margin:0;font-size:12px;color:#666;">
+                Claude's response could not be parsed, so these roles are unscored (fit score 0) and
+                will not be re-assessed automatically. Review them manually.
+            </p>
+        </div>"""
+
+
 def _partial_banner_html(pending_companies: list[dict]) -> str:
     if not pending_companies:
         return ""
@@ -153,7 +180,11 @@ def _build_html(jobs: list[dict], pending_companies: list[dict] | None = None, s
     """Build an HTML email body with 3 separate tables (Apply, Maybe, Skip)."""
     pending_companies = pending_companies or []
     source_issues = source_issues or []
-    banner = _source_issues_banner_html(source_issues) + _partial_banner_html(pending_companies)
+    banner = (
+        _source_issues_banner_html(source_issues)
+        + _failed_assessments_banner_html(jobs)
+        + _partial_banner_html(pending_companies)
+    )
 
     if not jobs:
         no_roles_msg = (
@@ -271,6 +302,14 @@ def _build_plain(jobs: list[dict], pending_companies: list[dict] | None = None, 
             "\n[SOURCE WARNING — Results May Be Incomplete]\n"
             + "\n".join(f"  - {i}" for i in source_issues)
             + "\nThe CI runner was likely Cloudflare-challenged. Re-run or check the source.\n"
+        )
+
+    failed = [j for j in jobs if j.get("assessment_failed")]
+    if failed:
+        issues_notice += (
+            f"\n[ASSESSMENT FAILED — {len(failed)} role(s) need manual review]\n"
+            + "\n".join(f"  - {j.get('title', '')} ({j.get('company', '')}): {j.get('url', '')}" for j in failed)
+            + "\n"
         )
 
     partial_notice = ""

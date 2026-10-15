@@ -72,6 +72,11 @@ JOB DESCRIPTION:
             messages=[{"role": "user", "content": prompt}],
         )
 
+        # A truncated response leaves the JSON cut off mid-string; report that
+        # directly rather than surfacing an opaque JSONDecodeError.
+        if message.stop_reason == "max_tokens":
+            raise ValueError(f"Response truncated at ASSESSOR_MAX_TOKENS={ASSESSOR_MAX_TOKENS} — JSON incomplete")
+
         raw = message.content[0].text.strip()
 
         # Strip accidental markdown fences if present
@@ -93,6 +98,7 @@ JOB DESCRIPTION:
     except Exception as e:
         logging.getLogger(__name__).error("[assessor] Failed to assess %s: %s", job['title'], e)
         return {
+            "assessment_failed": True,
             "fit_score": 0,
             "key_strengths": "Assessment failed",
             "key_gaps": "Assessment failed",

@@ -170,7 +170,7 @@ CV_QUANT_KEYWORDS: set[str] = {
 }
 
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
-ASSESSOR_MAX_TOKENS = 500
+ASSESSOR_MAX_TOKENS = 2000
 
 # Score caps applied when the model identifies unmet required qualifications.
 # Key = number of unmet required quals, value = maximum allowed fit_score.

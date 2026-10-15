@@ -177,3 +177,32 @@ def test_no_cap_when_no_unmet(mock_client):
     result = assess_fit(SAMPLE_JOB, SAMPLE_PROFILE)
 
     assert result["fit_score"] == 9, "Score should be unchanged when no unmet required quals"
+
+
+def _make_truncated_response(response_text: str):
+    mock_message = _make_mock_response(response_text)
+    mock_message.stop_reason = "max_tokens"
+    return mock_message
+
+
+@patch("assessor._client")
+def test_flags_failure_on_truncation_without_retry(mock_client):
+    mock_client.messages.create.return_value = _make_truncated_response('{"key_gaps": "cut off')
+
+    from assessor import assess_fit
+    result = assess_fit(SAMPLE_JOB, SAMPLE_PROFILE)
+
+    assert mock_client.messages.create.call_count == 1
+    assert result["assessment_failed"] is True
+    assert result["fit_score"] == 0
+    assert "truncated" in result["reasoning"]
+
+
+@patch("assessor._client")
+def test_bad_json_flags_assessment_failed(mock_client):
+    mock_client.messages.create.return_value = _make_mock_response("not valid json {{")
+
+    from assessor import assess_fit
+    result = assess_fit(SAMPLE_JOB, SAMPLE_PROFILE)
+
+    assert result["assessment_failed"] is True
