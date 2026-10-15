@@ -27,6 +27,7 @@ Whenever you modify any file under `sources/` or `gmail.py`, run the relevant te
 | `sources/file_mode.py` | `uv run pytest tests/test_file_mode.py -v` |
 | `gmail.py` | `uv run pytest tests/test_gmail.py -v` |
 | `main.py` | `uv run pytest tests/test_main_timeout.py tests/test_main_dedup.py -v` |
+| `scripts/reassess_failed.py` | `uv run pytest tests/test_reassess_failed.py -v` |
 | Any / all sources | `uv run pytest tests/ -v` |
 
 If a test script does not yet exist for a new source you add, **create one** alongside the source file and add it to the table above.

@@ -129,6 +129,17 @@ Optionally override the Google Sheets profile with a local plain-text file:
 python main.py --file job.pdf --profile my_profile.txt
 ```
 
+### Re-assess failed rows
+
+When an assessment fails (fit score 0, recommendation "Manual review needed" — flagged in the digest email with `[N ASSESS FAILED]`), re-run it against the Jobs tab:
+
+```bash
+python -m scripts.reassess_failed            # re-assess and update rows in place
+python -m scripts.reassess_failed --dry-run  # fetch + assess, print results, no sheet writes
+```
+
+For each failed row it re-fetches the JD from the URL, re-assesses it, and overwrites the assessment columns. Postings that have since closed are marked `Closed` without an API call; rows whose JD still can't be fetched are left as-is and listed at the end. Safe to re-run at any time. Needs `ANTHROPIC_API_KEY`, `GOOGLE_SERVICE_ACCOUNT_JSON` and `SHEET_ID`. Note `--dry-run` still calls the Claude API.
+
 ---
 
 ## Project structure
@@ -152,6 +163,8 @@ role-fit-radar/
 │   ├── filters.py               # Shared title-relevance logic
 │   ├── file_mode.py             # File/URL loader for --file mode
 │   └── scraper.py               # Playwright scraper stub (future)
+├── scripts/
+│   └── reassess_failed.py       # Re-assess "Manual review needed" rows in place
 ├── tests/
 │   ├── conftest.py              # Shared fixtures
 │   ├── test_assessor.py
@@ -165,7 +178,8 @@ role-fit-radar/
 │   ├── test_oracle_hcm.py
 │   ├── test_main_dedup.py
 │   ├── test_sheets.py
-│   └── test_file_mode.py
+│   ├── test_file_mode.py
+│   └── test_reassess_failed.py
 ├── requirements.txt
 └── .github/workflows/scan.yml   # GitHub Actions cron (daily 5pm UTC)
 ```
