@@ -75,7 +75,7 @@ class TestFetchWithRetry:
         assert mock_fetch.call_count == rf.FETCH_ATTEMPTS
 
 
-@patch("scripts.reassess_failed.is_closed", new=MagicMock(return_value=False))
+@patch("scripts.reassess_failed.check_posting", new=MagicMock(return_value=(rf.POSTING_OPEN, 200)))
 class TestReassess:
     @patch("scripts.reassess_failed.assess_fit", return_value=GOOD)
     @patch("scripts.reassess_failed.fetch_with_retry", return_value=LONG_JD)
@@ -119,7 +119,7 @@ class TestReassess:
 class TestClosedPostings:
     @patch("scripts.reassess_failed.assess_fit")
     @patch("scripts.reassess_failed.fetch_with_retry")
-    @patch("scripts.reassess_failed.is_closed", return_value=True)
+    @patch("scripts.reassess_failed.check_posting", return_value=(rf.POSTING_CLOSED, 410))
     def test_closed_row_marked_without_fetch_or_api_call(self, mock_closed, mock_fetch, mock_assess):
         ws = _worksheet([_row("gone")])
         outcome = rf.reassess(ws, "profile")
@@ -132,21 +132,52 @@ class TestClosedPostings:
         assert ws.update.call_args.kwargs["range_name"] == "I2:M2"
         assert len(outcome["closed"]) == 1
 
-    @patch("scripts.reassess_failed.is_closed", return_value=True)
+    @patch("scripts.reassess_failed.check_posting", return_value=(rf.POSTING_CLOSED, 410))
     def test_closed_row_not_written_on_dry_run(self, mock_closed):
         ws = _worksheet([_row("gone")])
         outcome = rf.reassess(ws, "profile", dry_run=True)
         ws.update.assert_not_called()
         assert len(outcome["closed"]) == 1
 
-    @patch("scripts.reassess_failed._is_closed_async", side_effect=RuntimeError("browser crash"))
-    def test_closed_check_error_treated_as_open(self, mock_check):
-        assert rf.is_closed("https://example.com/x") is False
+    @patch("scripts.reassess_failed._check_posting_async", side_effect=RuntimeError("browser crash"))
+    def test_check_error_treated_as_open(self, mock_check):
+        assert rf.check_posting("https://example.com/x") == (rf.POSTING_OPEN, None)
+
+    @patch("scripts.reassess_failed.assess_fit")
+    @patch("scripts.reassess_failed.fetch_with_retry")
+    @patch("scripts.reassess_failed.check_posting", return_value=(rf.POSTING_BLOCKED, 403))
+    def test_blocked_row_left_untouched(self, mock_check, mock_fetch, mock_assess):
+        ws = _worksheet([_row("efc job", source="efinancialcareers")])
+        outcome = rf.reassess(ws, "profile")
+
+        ws.update.assert_not_called()
+        mock_fetch.assert_not_called()
+        mock_assess.assert_not_called()
+        assert outcome["blocked"][0][1] == "HTTP 403"
+        assert outcome["closed"] == []
+
+
+class TestClassifyPosting:
+    def test_gone_and_not_found_are_closed(self):
+        assert rf.classify_posting(410, "") == rf.POSTING_CLOSED
+        assert rf.classify_posting(404, "") == rf.POSTING_CLOSED
+
+    def test_forbidden_rate_limited_and_server_errors_are_blocked(self):
+        for status in (403, 429, 500, 503):
+            assert rf.classify_posting(status, "") == rf.POSTING_BLOCKED, status
+
+    def test_closed_marker_text_is_closed(self):
+        assert rf.classify_posting(200, "Senior Engineer\nNo longer accepting applications.") == rf.POSTING_CLOSED
+
+    def test_normal_page_is_open(self):
+        assert rf.classify_posting(200, "We are hiring a senior engineer to build execution algos.") == rf.POSTING_OPEN
+        assert rf.classify_posting(None, "Job description") == rf.POSTING_OPEN
 
 
 class TestMain:
     @patch("scripts.reassess_failed.reassess", return_value={"fixed": [("row 2: x", "7/10 Maybe")],
                                                               "closed": [("row 5: w", "u")],
+                                                              "blocked": [("row 6: v", "HTTP 403")],
                                                               "unfetchable": [("row 3: y", "u")],
                                                               "still_failed": [("row 4: z", "err")]})
     @patch("scripts.reassess_failed._get_sheet")
@@ -158,6 +189,7 @@ class TestMain:
         assert "Would update 1 row(s)" in out
         assert "row 3: y" in out and "row 4: z" in out
         assert "1 row(s) would be marked 'Closed'" in out and "row 5: w" in out
+        assert "Site blocked the request — 1 row(s)" in out and "row 6: v" in out
 
     @patch("scripts.reassess_failed.get_profile", return_value="")
     def test_aborts_on_empty_profile(self, mock_profile):

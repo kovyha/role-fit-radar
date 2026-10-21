@@ -4,7 +4,8 @@
 # For each failed row: check the posting is still open, re-fetch the job description
 # from its URL, run assess_fit, and overwrite the assessment columns (Fit Score →
 # Reasoning) in place. Closed postings are marked "Closed" without an API call. Rows
-# whose description still can't be fetched are left untouched and listed at the end.
+# whose site blocks us, or whose description still can't be fetched, are left
+# untouched and listed at the end.
 #
 # Safe to re-run: only rows still marked "Manual review needed" are picked up.
 #
@@ -38,6 +39,11 @@ CLOSED_MARKERS = (
     "position has been filled",
 )
 
+# Only "not found"/"gone" prove the posting is closed. Any other HTTP error (eFC returns
+# 403 when it blocks a client) leaves the row untouched for a later re-run.
+CLOSED_HTTP_STATUSES = frozenset({404, 410})
+POSTING_OPEN, POSTING_CLOSED, POSTING_BLOCKED = "open", "closed", "blocked"
+
 # 0-based column indexes into a Jobs-tab row (see sheets.append_jobs)
 COL_COMPANY, COL_SOURCE, COL_TITLE, COL_LOCATION, COL_DEPARTMENT, COL_URL = 1, 2, 3, 4, 5, 6
 COL_RECOMMENDATION = 11
@@ -59,28 +65,39 @@ def find_failed_rows(rows: list[list[str]]) -> list[tuple[int, list[str]]]:
     ]
 
 
-async def _is_closed_async(url: str) -> bool:
-    """True when the posting returns an HTTP error (e.g. eFC 410 Gone) or says it's closed."""
+def classify_posting(status: int | None, text: str) -> str:
+    """POSTING_OPEN, POSTING_CLOSED or POSTING_BLOCKED from the page's HTTP status and body text."""
+    if status in CLOSED_HTTP_STATUSES:
+        return POSTING_CLOSED
+    if status is not None and status >= 400:
+        # 403/429/5xx mean we're blocked or the site is down — says nothing about the posting
+        return POSTING_BLOCKED
+    text = text.lower()
+    return POSTING_CLOSED if any(marker in text for marker in CLOSED_MARKERS) else POSTING_OPEN
+
+
+async def _check_posting_async(url: str) -> tuple[str, int | None]:
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         try:
             page = await browser.new_page()
             response = await page.goto(url, wait_until="load", timeout=PLAYWRIGHT_PAGE_TIMEOUT_MS)
-            if response is not None and response.status >= 400:
-                return True
-            await page.wait_for_timeout(PLAYWRIGHT_FALLBACK_WAIT_MS)  # let SPAs render
-            text = (await page.evaluate("() => document.body ? document.body.innerText : ''")).lower()
+            status = response.status if response is not None else None
+            text = ""
+            if status is None or status < 400:
+                await page.wait_for_timeout(PLAYWRIGHT_FALLBACK_WAIT_MS)  # let SPAs render
+                text = await page.evaluate("() => document.body ? document.body.innerText : ''")
         finally:
             await browser.close()
-    return any(marker in text for marker in CLOSED_MARKERS)
+    return classify_posting(status, text), status
 
 
-def is_closed(url: str) -> bool:
+def check_posting(url: str) -> tuple[str, int | None]:
     try:
-        return asyncio.run(_is_closed_async(url))
+        return asyncio.run(_check_posting_async(url))
     except Exception as e:
-        logger.error(f"Closed-check failed for {url}: {e}")
-        return False  # fall through to the normal fetch; an empty fetch is still caught later
+        logger.error(f"Posting check failed for {url}: {e}")
+        return POSTING_OPEN, None  # fall through to the normal fetch; an empty fetch is still caught later
 
 
 async def _fetch_generic_async(url: str) -> str:
@@ -148,17 +165,22 @@ def fetch_with_retry(source: str, url: str) -> str:
 
 def reassess(worksheet, profile: str, dry_run: bool = False) -> dict:
     """Re-assess every failed row. Returns lists of (label, detail) keyed by
-    "fixed", "closed", "still_failed" and "unfetchable"."""
+    "fixed", "closed", "blocked", "still_failed" and "unfetchable"."""
     failed = find_failed_rows(worksheet.get_all_values())
     logger.info(f"{len(failed)} failed assessment row(s) found")
 
-    outcome = {"fixed": [], "closed": [], "still_failed": [], "unfetchable": []}
+    outcome = {"fixed": [], "closed": [], "blocked": [], "still_failed": [], "unfetchable": []}
     for n, (row_num, row) in enumerate(failed, 1):
         title, url, source = row[COL_TITLE], row[COL_URL], row[COL_SOURCE]
         label = f"row {row_num}: {title} ({row[COL_COMPANY]}, {source})"
         logger.info(f"[{n}/{len(failed)}] {label}")
 
-        if is_closed(url):
+        state, status = check_posting(url)
+        if state == POSTING_BLOCKED:
+            logger.warning(f"  → blocked (HTTP {status}); row left untouched")
+            outcome["blocked"].append((label, f"HTTP {status}"))
+            continue
+        if state == POSTING_CLOSED:
             logger.info("  → posting closed")
             if not dry_run:
                 values = [["", "", "", CLOSED_RECOMMENDATION,
@@ -209,6 +231,10 @@ def _print_summary(outcome: dict, dry_run: bool) -> None:
         print(f"\nPosting closed — {len(outcome['closed'])} row(s) {mark} '{CLOSED_RECOMMENDATION}':")
         for label, _ in outcome["closed"]:
             print(f"  – {label}")
+    if outcome["blocked"]:
+        print(f"\nSite blocked the request — {len(outcome['blocked'])} row(s) left untouched; re-run later:")
+        for label, detail in outcome["blocked"]:
+            print(f"  ✗ {detail:9} {label}")
     if outcome["unfetchable"]:
         print(f"\nCould not fetch description — {len(outcome['unfetchable'])} row(s) left for manual review:")
         for label, url in outcome["unfetchable"]:

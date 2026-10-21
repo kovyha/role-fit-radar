@@ -138,7 +138,7 @@ python -m scripts.reassess_failed            # re-assess and update rows in plac
 python -m scripts.reassess_failed --dry-run  # fetch + assess, print results, no sheet writes
 ```
 
-For each failed row it re-fetches the JD from the URL, re-assesses it, and overwrites the assessment columns. Postings that have since closed are marked `Closed` without an API call; rows whose JD still can't be fetched are left as-is and listed at the end. Safe to re-run at any time. Needs `ANTHROPIC_API_KEY`, `GOOGLE_SERVICE_ACCOUNT_JSON` and `SHEET_ID`. Note `--dry-run` still calls the Claude API.
+For each failed row it re-fetches the JD from the URL, re-assesses it, and overwrites the assessment columns. Postings that have since closed (HTTP 404/410, or "no longer accepting applications"-style page text) are marked `Closed` without an API call. If a site blocks the request (HTTP 403, 429 or 5xx — e.g. eFC rate-limiting) the row is left untouched and listed under "Site blocked the request"; re-run later. Rows whose JD still can't be fetched are likewise left as-is and listed at the end. Safe to re-run at any time. Needs `ANTHROPIC_API_KEY`, `GOOGLE_SERVICE_ACCOUNT_JSON` and `SHEET_ID`. Note `--dry-run` still calls the Claude API.
 
 ---
 
