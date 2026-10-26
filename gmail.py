@@ -239,11 +239,17 @@ def _build_html(jobs: list[dict], pending_companies: list[dict] | None = None, s
                     f'&nbsp;<small style="color:#aaa;">or: {override_links}</small>'
                 )
 
+            summary = job.get("role_summary", "")
+            summary_html = (
+                f'<br><span style="font-size:12px;color:#444;line-height:1.4;">{summary}</span>'
+                if summary else ""
+            )
+
             rows += f"""
         <tr>
             <td style="padding:8px;border-bottom:1px solid #eee;">
                 <a href="{job.get('url', '')}" style="font-weight:bold;color:#1a1a1a;">{job.get('title', '')}</a>{sheet_link}<br>
-                <small style="color:#666;">{job.get('company', '')} · {job.get('department', '')} · {job.get('location', '')} · {job.get('source', '')}</small>
+                <small style="color:#666;">{job.get('company', '')} · {job.get('department', '')} · {job.get('location', '')} · {job.get('source', '')}</small>{summary_html}
             </td>
             <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">
                 <strong>{job.get('fit_score', '')}/10</strong>
@@ -339,6 +345,7 @@ def _build_plain(jobs: list[dict], pending_companies: list[dict] | None = None, 
             f"Location:       {job.get('location', '')}",
             f"Source:         {job.get('source', '')}",
             f"URL:            {job.get('url', '')}",
+            f"Summary:        {job.get('role_summary', '')}",
             f"Fit Score:      {job.get('fit_score', '')}/10",
             f"Recommendation: {job.get('recommendation', '')}",
             f"Strengths:      {job.get('key_strengths', '')}",

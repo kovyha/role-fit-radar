@@ -20,7 +20,7 @@ def assess_fit(job: dict, profile: str) -> dict:
         profile: User profile as plain text read from the Profile sheet tab
 
     Returns:
-        Dict with keys: fit_score, key_strengths, key_gaps, recommendation, reasoning
+        Dict with keys: role_summary, fit_score, key_strengths, key_gaps, recommendation, reasoning
     """
 
     title_lower = job["title"].lower()
@@ -42,10 +42,19 @@ def assess_fit(job: dict, profile: str) -> dict:
         "1. Identify all qualifications labeled Required, Must Have, Minimum Qualifications, or equivalent hard-requirement language.\n"
         "2. For each required qualification, decide whether the candidate meets it. List every unmet one verbatim in \"unmet_required_quals\".\n"
         "3. Preferred, Nice-to-Have, or Plus qualifications do not belong in \"unmet_required_quals\".\n"
+        "   Degree equivalence: UK integrated Master's degrees (MEng, MSci, MMath, MPhys, MChem) are Master's-level "
+        "qualifications (FHEQ Level 7), equivalent to an MS/MSc. They satisfy any Master's, MS, MSc, postgraduate or "
+        "'advanced degree' level requirement — never describe such a candidate as lacking a Master's. Assess the "
+        "subject separately: engineering, computer science, mathematics and physics count as quantitative STEM "
+        "fields. Wording like 'or related field', 'or similar' or 'or equivalent' is satisfied by any adjacent STEM degree "
+        "(e.g. an engineering or information-systems degree against a CS/Maths/Physics list). Only flag a subject gap "
+        "when the JD requires a specific discipline with no such allowance (e.g. 'Master's in Finance'). "
+        "A PhD requirement is not met by a Master's.\n"
         "4. Set fit_score freely based on overall fit, then it will be capped externally: 1 unmet → max 6, 2+ unmet → max 4.\n"
         "5. Call out any unmet required qualifications explicitly at the start of key_gaps.\n\n"
         "Respond ONLY with a JSON object. No preamble, no markdown, no backticks. Use exactly this structure:\n"
         "{\n"
+        "  \"role_summary\": \"<max 40 words, neutral: what the role is — team/desk, core responsibilities, seniority, key tech or asset class. No fit judgement>\",\n"
         "  \"unmet_required_quals\": [\"<verbatim required qualification that is unmet>\", ...],\n"
         "  \"fit_score\": <integer 1-10>,\n"
         "  \"key_strengths\": \"<2-3 sentences on strongest matches>\",\n"

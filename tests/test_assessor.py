@@ -206,3 +206,38 @@ def test_bad_json_flags_assessment_failed(mock_client):
     result = assess_fit(SAMPLE_JOB, SAMPLE_PROFILE)
 
     assert result["assessment_failed"] is True
+
+
+@patch("assessor._client")
+def test_schema_requests_role_summary(mock_client):
+    mock_client.messages.create.return_value = _make_mock_response(json.dumps(VALID_RESPONSE))
+
+    from assessor import assess_fit
+    assess_fit(SAMPLE_JOB, SAMPLE_PROFILE)
+
+    system = _get_system_text(mock_client.messages.create.call_args)
+    assert '"role_summary"' in system
+
+
+@patch("assessor._client")
+def test_role_summary_passed_through(mock_client):
+    response = {**VALID_RESPONSE, "role_summary": "Builds VWAP/TWAP algos in C++ for the equities desk."}
+    mock_client.messages.create.return_value = _make_mock_response(json.dumps(response))
+
+    from assessor import assess_fit
+    result = assess_fit(SAMPLE_JOB, SAMPLE_PROFILE)
+
+    assert result["role_summary"] == response["role_summary"]
+
+
+@patch("assessor._client")
+def test_rubric_treats_uk_integrated_masters_as_masters(mock_client):
+    mock_client.messages.create.return_value = _make_mock_response(json.dumps(VALID_RESPONSE))
+
+    from assessor import assess_fit
+    assess_fit(SAMPLE_JOB, SAMPLE_PROFILE)
+
+    system = _get_system_text(mock_client.messages.create.call_args)
+    assert "MEng" in system and "Master's-level" in system, "UK integrated Master's equivalence missing"
+    assert "or related field" in system, "'or related field' allowance missing"
+    assert "PhD requirement is not met by a Master's" in system, "PhD guard missing"

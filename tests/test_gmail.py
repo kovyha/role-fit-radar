@@ -137,3 +137,20 @@ class TestFailedAssessments:
         monkeypatch.setenv("GMAIL_APP_PASSWORD", "x")
         send_summary([_OK_JOB])
         assert "ASSESS FAILED" not in _sent_subject(mock_smtp)
+
+
+class TestRoleSummary:
+    SUMMARY = "Builds low-latency FX execution algos in C++ for the e-trading desk."
+
+    def test_html_shows_summary_under_title(self):
+        html = _build_html([{**_OK_JOB, "role_summary": self.SUMMARY}])
+        assert self.SUMMARY in html
+        assert html.index(_OK_JOB["company"]) < html.index(self.SUMMARY) < html.index("Strengths:")
+
+    def test_html_omits_summary_markup_when_missing(self):
+        html = _build_html([_OK_JOB])
+        assert "font-size:12px;color:#444" not in html
+
+    def test_plain_shows_summary(self):
+        plain = _build_plain([{**_OK_JOB, "role_summary": self.SUMMARY}])
+        assert f"Summary:        {self.SUMMARY}" in plain

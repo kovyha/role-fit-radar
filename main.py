@@ -260,6 +260,8 @@ def _print_assessment(name: str, result: dict) -> None:
     print(sep)
     print(f"  Fit Score  : {result.get('fit_score', '?')}/10")
     print(f"  Recommend  : {result.get('recommendation', '?')}")
+    if result.get("role_summary"):
+        print(f"  Summary    : {result['role_summary']}")
     unmet = result.get("unmet_required_quals", [])
     if unmet:
         for q in unmet:
