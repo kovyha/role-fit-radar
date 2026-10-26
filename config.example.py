@@ -127,11 +127,14 @@ JOBS_COLUMNS = [
     "Location",
     "Department",
     "URL",
+    "First Published",
     "Fit Score (1-10)",
     "Key Strengths",
     "Key Gaps",
     "Recommendation",
     "Reasoning",
+    "Dedup Key",
+    "Requirement Evidence",
 ]
 
 LINKEDIN_LABEL = "JobSearch"
@@ -169,12 +172,21 @@ CV_QUANT_KEYWORDS: set[str] = {
     # "quant", "derivatives", "monte carlo",
 }
 
-CLAUDE_MODEL = "claude-haiku-4-5-20251001"
-ASSESSOR_MAX_TOKENS = 2000
+CLAUDE_MODEL = "claude-haiku-5-5"
+ASSESSOR_MAX_TOKENS = 16000  # room for thinking (Haiku 5.5+) plus the JSON answer; billed on use only
+
+# Thinking depth for models that support effort ("low" / "medium" / "high" / "xhigh" / "max").
+# None sends no effort parameter — required for Haiku 4.5, which rejects it.
+ASSESSOR_EFFORT: str | None = "high"
 
 # Score caps applied when the model identifies unmet required qualifications.
 # Key = number of unmet required quals, value = maximum allowed fit_score.
 UNMET_REQUIRED_SCORE_CAPS: dict[int, int] = {1: 6, 2: 4}
+
+# Score bands applied after the caps above. Each entry is (minimum fit_score,
+# label), checked in order; a score below every threshold maps to "Skip".
+# The final recommendation is the lower of this label and the model's own.
+RECOMMENDATION_THRESHOLDS: list[tuple[int, str]] = [(7, "Apply"), (4, "Maybe")]
 
 # Keyword-triggered hints injected into the assessor prompt.
 # Each entry is (list_of_keywords, hint_text). If any keyword in the list

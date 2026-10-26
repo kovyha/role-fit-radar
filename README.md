@@ -44,6 +44,8 @@ In the `Profile` tab, write your background as key-value rows:
 
 Extend or edit freely — the LLM reads this tab directly.
 
+**How a role's score and label are set:** the model maps each required qualification to profile evidence (written to the `Requirement Evidence` column) and lists the unmet ones. `UNMET_REQUIRED_SCORE_CAPS` caps the fit score by the number of unmet requirements, then `RECOMMENDATION_THRESHOLDS` maps the capped score to Apply / Maybe / Skip. The final label is the lower of that band and the model's own label, except that a reasoning starting with `MS-MIRROR:` is never below Maybe.
+
 ### 4. Gmail App Password
 
 1. Google Account → Security → 2-Step Verification → App Passwords

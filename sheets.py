@@ -143,6 +143,15 @@ def get_profile() -> str:
         return ""
 
 
+def _format_evidence(entries: list[dict] | None) -> str:
+    """One line per required qualification: requirement → evidence [mode, last hands-on year]."""
+    return "\n".join(
+        f"{e.get('requirement', '')} → {e.get('evidence', 'none')} "
+        f"[{e.get('mode', 'none')}, last hands-on: {e.get('last_hands_on_year', 'none')}]"
+        for e in entries or []
+    )
+
+
 def append_jobs(jobs: list[dict]) -> list[str]:
     """
     Append new job rows to the Jobs tab.
@@ -153,7 +162,14 @@ def append_jobs(jobs: list[dict]) -> list[str]:
     worksheet = spreadsheet.worksheet(JOBS_TAB)
     today = datetime.today().strftime("%Y-%m-%d %H:%M")
 
-    first_new_row = len(worksheet.get_all_values()) + 1  # 1-based, after existing data
+    all_values = worksheet.get_all_values()
+    first_new_row = len(all_values) + 1  # 1-based, after existing data
+
+    # Self-healing: sheets created before trailing columns were added get their headers on first write
+    header = all_values[0] if all_values else []
+    if header:
+        for col in range(len(header) + 1, len(JOBS_COLUMNS) + 1):  # 1-based
+            worksheet.update_cell(1, col, JOBS_COLUMNS[col - 1])
 
     rows = []
     for job in jobs:
@@ -174,6 +190,7 @@ def append_jobs(jobs: list[dict]) -> list[str]:
             job.get("recommendation", ""),
             job.get("reasoning", ""),
             f"{title.lower()}|{company.lower()}",
+            _format_evidence(job.get("required_quals_evidence")),
         ]
         rows.append(row)
 

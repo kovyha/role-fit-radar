@@ -3,7 +3,7 @@
 #
 # For each failed row: check the posting is still open, re-fetch the job description
 # from its URL, run assess_fit, and overwrite the assessment columns (Fit Score →
-# Reasoning) in place. Closed postings are marked "Closed" without an API call. Rows
+# Reasoning, plus Requirement Evidence) in place. Closed postings are marked "Closed" without an API call. Rows
 # whose site blocks us, or whose description still can't be fetched, are left
 # untouched and listed at the end.
 #
@@ -23,7 +23,7 @@ from playwright.async_api import async_playwright
 
 from assessor import assess_fit
 from config import JOBS_TAB, JOB_CONTENT_MAX_CHARS, PLAYWRIGHT_PAGE_TIMEOUT_MS, PLAYWRIGHT_FALLBACK_WAIT_MS
-from sheets import _get_sheet, get_profile
+from sheets import _format_evidence, _get_sheet, get_profile
 from sources import efinancialcareers, gmail_linkedin, greenhouse
 
 logger = logging.getLogger("reassess")
@@ -48,6 +48,7 @@ POSTING_OPEN, POSTING_CLOSED, POSTING_BLOCKED = "open", "closed", "blocked"
 COL_COMPANY, COL_SOURCE, COL_TITLE, COL_LOCATION, COL_DEPARTMENT, COL_URL = 1, 2, 3, 4, 5, 6
 COL_RECOMMENDATION = 11
 ASSESSMENT_RANGE = "I{row}:M{row}"  # Fit Score, Key Strengths, Key Gaps, Recommendation, Reasoning
+EVIDENCE_RANGE = "O{row}"            # Requirement Evidence (N is Dedup Key, left untouched)
 
 # Descriptions shorter than this are treated as a failed fetch (empty shell / sign-in wall)
 MIN_CONTENT_CHARS = 200
@@ -216,6 +217,8 @@ def reassess(worksheet, profile: str, dry_run: bool = False) -> dict:
         logger.info(f"  → {result.get('fit_score')}/10 {result.get('recommendation')}")
         if not dry_run:
             worksheet.update(values=values, range_name=ASSESSMENT_RANGE.format(row=row_num), value_input_option="RAW")
+            worksheet.update(values=[[_format_evidence(result.get("required_quals_evidence"))]],
+                             range_name=EVIDENCE_RANGE.format(row=row_num), value_input_option="RAW")
         outcome["fixed"].append((label, f"{result.get('fit_score')}/10 {result.get('recommendation')}"))
 
     return outcome

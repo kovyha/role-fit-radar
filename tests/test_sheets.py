@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 import os
 import gspread
 
+from config import JOBS_COLUMNS
 from sheets import get_seen_title_company_keys, append_jobs
 
 
@@ -153,7 +154,7 @@ class TestAppendJobsWritesDedupKey:
 
         written_rows = ws.append_rows.call_args[0][0]
         assert len(written_rows) == 1
-        assert written_rows[0][-1] == "senior swe|anthropic"
+        assert written_rows[0][-2] == "senior swe|anthropic"
 
     def test_dedup_key_normalised_to_lowercase(self):
         ws = _make_append_ws()
@@ -168,7 +169,7 @@ class TestAppendJobsWritesDedupKey:
             append_jobs(jobs)
 
         written_rows = ws.append_rows.call_args[0][0]
-        assert written_rows[0][-1] == "head of product|openai"
+        assert written_rows[0][-2] == "head of product|openai"
 
     def test_returns_sheet_url_per_job(self):
         ws = _make_append_ws(existing_rows=5)  # 5 rows already in sheet → new row at 6
@@ -189,3 +190,56 @@ class TestAppendJobsWritesDedupKey:
         assert "test_sheet_id" in urls[0]
         assert "range=A6" in urls[0]
         assert "range=A7" in urls[1]
+
+
+class TestAppendJobsWritesRequirementEvidence:
+
+    _JOB = {"company": "A", "title": "Role", "source": "greenhouse", "location": "", "department": "",
+            "url": "u", "fit_score": 8, "key_strengths": "", "key_gaps": "", "recommendation": "Apply",
+            "reasoning": ""}
+
+    def test_evidence_written_as_last_column_one_line_per_requirement(self):
+        ws = _make_append_ws()
+        evidence = [
+            {"requirement": "10+ years algo execution", "evidence": "Role 2: Led full lifecycle delivery",
+             "last_hands_on_year": "2021", "mode": "hands-on"},
+            {"requirement": "Production C++", "evidence": "none", "last_hands_on_year": "none", "mode": "none"},
+        ]
+
+        with _patch_sheet(ws), _SHEET_ENV:
+            append_jobs([{**self._JOB, "required_quals_evidence": evidence}])
+
+        written = ws.append_rows.call_args[0][0][0][-1]
+        assert written == (
+            "10+ years algo execution → Role 2: Led full lifecycle delivery [hands-on, last hands-on: 2021]\n"
+            "Production C++ → none [none, last hands-on: none]"
+        )
+
+    def test_evidence_blank_when_absent(self):
+        ws = _make_append_ws()
+
+        with _patch_sheet(ws), _SHEET_ENV:
+            append_jobs([self._JOB])  # e.g. a Dup row, which is never assessed
+
+        assert ws.append_rows.call_args[0][0][0][-1] == ""
+
+    def test_adds_missing_trailing_headers_only(self):
+        ws = _make_append_ws()
+        ws.get_all_values.return_value = [_HEADER_WITH_DEDUP]
+
+        with _patch_sheet(ws), _SHEET_ENV:
+            append_jobs([self._JOB])
+
+        written = [c.args for c in ws.update_cell.call_args_list]
+        assert written == [(1, col, JOBS_COLUMNS[col - 1])
+                           for col in range(len(_HEADER_WITH_DEDUP) + 1, len(JOBS_COLUMNS) + 1)]
+        assert written[-1] == (1, len(JOBS_COLUMNS), "Requirement Evidence")
+
+    def test_no_header_writes_when_header_complete(self):
+        ws = _make_append_ws()
+        ws.get_all_values.return_value = [list(JOBS_COLUMNS)]
+
+        with _patch_sheet(ws), _SHEET_ENV:
+            append_jobs([self._JOB])
+
+        ws.update_cell.assert_not_called()

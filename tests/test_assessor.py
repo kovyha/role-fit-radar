@@ -35,7 +35,7 @@ def fake_api_key(monkeypatch):
 
 def _make_mock_response(response_text: str):
     mock_message = MagicMock()
-    mock_message.content = [MagicMock(text=response_text)]
+    mock_message.content = [MagicMock(type="text", text=response_text)]
     return mock_message
 
 
@@ -179,6 +179,94 @@ def test_no_cap_when_no_unmet(mock_client):
     assert result["fit_score"] == 9, "Score should be unchanged when no unmet required quals"
 
 
+_THRESHOLDS = patch("assessor.RECOMMENDATION_THRESHOLDS", [(7, "Apply"), (4, "Maybe")])
+
+
+def _assess_with(mock_client, **overrides):
+    mock_client.messages.create.return_value = _make_mock_response(json.dumps({**VALID_RESPONSE, **overrides}))
+    from assessor import assess_fit
+    with _THRESHOLDS:
+        return assess_fit(SAMPLE_JOB, SAMPLE_PROFILE)
+
+
+@patch("assessor._client")
+def test_capped_score_downgrades_model_apply(mock_client):
+    result = _assess_with(mock_client, fit_score=8, recommendation="Apply",
+                          unmet_required_quals=["Must have C++", "Fixed-income domain required"])
+
+    assert result["fit_score"] == 4
+    assert result["recommendation"] == "Maybe", "A capped 4/10 must not stay Apply"
+
+
+@patch("assessor._client")
+def test_score_below_lowest_threshold_is_skip(mock_client):
+    result = _assess_with(mock_client, fit_score=3, recommendation="Maybe")
+
+    assert result["recommendation"] == "Skip"
+
+
+@patch("assessor._client")
+def test_score_band_never_raises_model_label(mock_client):
+    # e.g. a strong fit the model Skipped because the role is outside London
+    result = _assess_with(mock_client, fit_score=9, recommendation="Skip")
+
+    assert result["recommendation"] == "Skip"
+
+
+@patch("assessor._client")
+def test_unrecognised_model_label_uses_score_band(mock_client):
+    result = _assess_with(mock_client, fit_score=7, recommendation="Strong yes")
+
+    assert result["recommendation"] == "Apply"
+
+
+@patch("assessor._client")
+def test_ms_mirror_floored_at_maybe(mock_client):
+    result = _assess_with(mock_client, fit_score=8, recommendation="Skip",
+                          unmet_required_quals=["Must have C++", "Fixed-income domain required", "PhD"],
+                          reasoning="MS-MIRROR: Head of EMEA benchmark execution, same scope as MS.")
+
+    assert result["fit_score"] == 4
+    assert result["recommendation"] == "Maybe"
+
+
+@patch("assessor._client")
+def test_ms_mirror_does_not_lower_apply(mock_client):
+    result = _assess_with(mock_client, fit_score=9, recommendation="Apply",
+                          reasoning="MS-MIRROR: Global head of execution technology.")
+
+    assert result["recommendation"] == "Apply"
+
+
+@patch("assessor._client")
+def test_schema_requests_required_quals_evidence(mock_client):
+    _assess_with(mock_client)
+
+    system = _get_system_text(mock_client.messages.create.call_args)
+    assert '"required_quals_evidence"' in system
+    assert '"last_hands_on_year"' in system
+    assert "review/oversight" in system
+
+
+@patch("assessor._client")
+def test_prompt_bans_praise_and_requires_strength_citations(mock_client):
+    _assess_with(mock_client)
+
+    system = _get_system_text(mock_client.messages.create.call_args)
+    assert "no praising or intensifying adjectives" in system
+    assert "exceptional" in system, "The observed offender should be named in the ban list"
+    assert "every strength claim must cite the profile row" in system
+    assert "[profile row] citation" in system, "key_strengths schema should require citations"
+
+
+@patch("assessor._client")
+def test_required_quals_evidence_passed_through(mock_client):
+    evidence = [{"requirement": "Production C++", "evidence": "none", "last_hands_on_year": "none", "mode": "none"}]
+    result = _assess_with(mock_client, required_quals_evidence=evidence)
+
+    assert result["required_quals_evidence"] == evidence
+
+
 def _make_truncated_response(response_text: str):
     mock_message = _make_mock_response(response_text)
     mock_message.stop_reason = "max_tokens"
@@ -196,6 +284,70 @@ def test_flags_failure_on_truncation_without_retry(mock_client):
     assert result["assessment_failed"] is True
     assert result["fit_score"] == 0
     assert "truncated" in result["reasoning"]
+
+
+@patch("assessor._client")
+def test_reads_answer_after_thinking_block(mock_client):
+    message = _make_mock_response(json.dumps(VALID_RESPONSE))
+    message.content = [MagicMock(type="thinking", thinking=""), *message.content]
+    mock_client.messages.create.return_value = message
+
+    from assessor import assess_fit
+    result = assess_fit(SAMPLE_JOB, SAMPLE_PROFILE)
+
+    assert "assessment_failed" not in result
+    assert result["fit_score"] == VALID_RESPONSE["fit_score"]
+
+
+@patch("assessor._client")
+def test_thinking_only_response_flags_failure(mock_client):
+    message = _make_mock_response("")
+    message.content = [MagicMock(type="thinking", thinking="")]
+    mock_client.messages.create.return_value = message
+
+    from assessor import assess_fit
+    result = assess_fit(SAMPLE_JOB, SAMPLE_PROFILE)
+
+    assert result["assessment_failed"] is True
+    assert "no text block" in result["reasoning"]
+
+
+@patch("assessor._client")
+def test_refusal_flags_failure_with_category(mock_client):
+    message = _make_mock_response("")
+    message.content = []
+    message.stop_reason = "refusal"
+    message.stop_details = MagicMock(category="frontier_llm")
+    mock_client.messages.create.return_value = message
+
+    from assessor import assess_fit
+    result = assess_fit(SAMPLE_JOB, SAMPLE_PROFILE)
+
+    assert result["assessment_failed"] is True
+    assert result["recommendation"] == "Manual review needed", "Declines must stay visible to reassess_failed"
+    assert "Declined by model safety classifier (category: frontier_llm)" == result["reasoning"]
+
+
+@patch("assessor._client")
+def test_effort_sent_when_configured(mock_client):
+    mock_client.messages.create.return_value = _make_mock_response(json.dumps(VALID_RESPONSE))
+
+    from assessor import assess_fit
+    with patch("assessor.ASSESSOR_EFFORT", "high"):
+        assess_fit(SAMPLE_JOB, SAMPLE_PROFILE)
+
+    assert mock_client.messages.create.call_args.kwargs["output_config"] == {"effort": "high"}
+
+
+@patch("assessor._client")
+def test_effort_omitted_when_unset(mock_client):
+    mock_client.messages.create.return_value = _make_mock_response(json.dumps(VALID_RESPONSE))
+
+    from assessor import assess_fit
+    with patch("assessor.ASSESSOR_EFFORT", None):
+        assess_fit(SAMPLE_JOB, SAMPLE_PROFILE)
+
+    assert "output_config" not in mock_client.messages.create.call_args.kwargs
 
 
 @patch("assessor._client")

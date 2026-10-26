@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from scripts import reassess_failed as rf
 
@@ -83,12 +83,23 @@ class TestReassess:
         ws = _worksheet([_row("ok", rec="Apply"), _row("failed")])
         outcome = rf.reassess(ws, "profile")
 
-        ws.update.assert_called_once_with(
-            values=[[7, "S", "G", "Maybe", "R"]], range_name="I3:M3", value_input_option="RAW"
-        )
+        assert ws.update.call_args_list == [
+            call(values=[[7, "S", "G", "Maybe", "R"]], range_name="I3:M3", value_input_option="RAW"),
+            call(values=[[""]], range_name="O3", value_input_option="RAW"),
+        ]
         assert len(outcome["fixed"]) == 1
         job = mock_assess.call_args.args[0]
         assert job["title"] == "failed" and job["content"] == LONG_JD and job["department"] == "Markets"
+
+    @patch("scripts.reassess_failed.assess_fit", return_value={**GOOD, "required_quals_evidence": [
+        {"requirement": "C++", "evidence": "none", "last_hands_on_year": "none", "mode": "none"}]})
+    @patch("scripts.reassess_failed.fetch_with_retry", return_value=LONG_JD)
+    def test_writes_requirement_evidence(self, mock_fetch, mock_assess):
+        ws = _worksheet([_row("failed")])
+        rf.reassess(ws, "profile")
+
+        assert ws.update.call_args_list[-1] == call(
+            values=[["C++ → none [none, last hands-on: none]"]], range_name="O2", value_input_option="RAW")
 
     @patch("scripts.reassess_failed.assess_fit", return_value=GOOD)
     @patch("scripts.reassess_failed.fetch_with_retry", return_value=LONG_JD)
